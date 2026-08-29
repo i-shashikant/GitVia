@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: gitvia-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: gitvia
+      POSTGRES_PASSWORD: gitvia_dev_password
+      POSTGRES_DB: gitvia
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - gitvia_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  gitvia_postgres_data:

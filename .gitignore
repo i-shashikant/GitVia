@@ -1,0 +1,106 @@
+# ==========================================
+# GitVia - Git Ignore
+# ==========================================
+
+# ---------- Environment Variables ----------
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+
+# Keep example environment files
+!.env.example
+
+
+# ---------- Node / Next.js ----------
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+.vercel/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Distribution / packaging
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+
+# ---------- IDE / Editors ----------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+
+# ---------- OS ----------
+Thumbs.db
+Desktop.ini
+
+
+# ---------- Logs ----------
+*.log
+logs/
+
+
+# ---------- Database ----------
+*.sqlite
+*.sqlite3
+
+# Local database dumps
+*.sql.gz
+
+
+# ---------- Secrets / Credentials ----------
+*.pem
+*.key
+*.crt
+
+credentials.json
+secrets.json
+
+
+# ---------- Temporary Files ----------
+*.tmp
+*.temp
+*.bak
+*.cache
+
+
+# ---------- Docker ----------
+docker-compose.override.yml
