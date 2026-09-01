@@ -4,6 +4,9 @@ from sqlalchemy import text
 from app.database import Base, engine
 from app import models
 from app.auth.github import router as github_auth_router
+from app.auth.session import router as session_router
+from fastapi.middleware.cors import CORSMiddleware
+
 
 app = FastAPI(
     title="GitVia API",
@@ -11,9 +14,18 @@ app = FastAPI(
     version="0.1.0",
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 Base.metadata.create_all(bind=engine)
 
 app.include_router(github_auth_router)
+app.include_router(session_router)
 
 
 @app.get("/api/health")

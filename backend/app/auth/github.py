@@ -189,3 +189,4 @@ async def github_callback(
     )
 
     return response
+
