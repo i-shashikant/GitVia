@@ -22,11 +22,24 @@ router = APIRouter(
 )
 
 
-@router.get("/me")
 def get_current_user(
     request: Request,
     db: Session = Depends(get_db),
-):
+) -> User:
+    """
+    Resolve the currently authenticated GitVia user.
+
+    Flow:
+
+        gitvia_session cookie
+                ↓
+             JWT decode
+                ↓
+             user_id
+                ↓
+          PostgreSQL User
+    """
+
     session_token = request.cookies.get("gitvia_session")
 
     if not session_token:
@@ -68,11 +81,18 @@ def get_current_user(
             detail="User not found",
         )
 
+    return user
+
+
+@router.get("/me")
+def get_current_user_info(
+    current_user: User = Depends(get_current_user),
+):
     return {
-        "id": user.id,
-        "github_id": user.github_id,
-        "github_username": user.github_username,
-        "name": user.name,
-        "email": user.email,
-        "avatar_url": user.avatar_url,
+        "id": current_user.id,
+        "github_id": current_user.github_id,
+        "github_username": current_user.github_username,
+        "name": current_user.name,
+        "email": current_user.email,
+        "avatar_url": current_user.avatar_url,
     }
