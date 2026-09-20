@@ -194,7 +194,7 @@ async def github_callback(
             # Existing user
             user.github_username = github_user["login"]
             user.name = github_user.get("name")
-            user.email = email
+            user.email = github_user.get("email")
             user.avatar_url = github_user.get("avatar_url")
 
             # IMPORTANT:
@@ -208,7 +208,7 @@ async def github_callback(
                 github_id=github_user["id"],
                 github_username=github_user["login"],
                 name=github_user.get("name"),
-                email=email,
+                email=github_user.get("email"),
                 avatar_url=github_user.get("avatar_url"),
                 access_token=access_token,
             )
