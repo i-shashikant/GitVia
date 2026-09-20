@@ -2,6 +2,7 @@ from typing import Any
 
 
 class RepositoryAnalyzer:
+
     def analyze_repo(
         self,
         name: str,
@@ -9,148 +10,452 @@ class RepositoryAnalyzer:
         paths: list[str],
         language: str | None,
         stars: int = 0,
-        forks: int = 0
+        forks: int = 0,
     ) -> dict[str, Any]:
         """
-        Calculates deterministic and AI-enhanced quality metrics across 6 dimensions:
+        Analyze a GitHub repository across six engineering dimensions:
+
         1. Documentation
         2. Architecture
         3. Code Quality
         4. Testing
         5. DevOps
         6. Scalability
+
+        Returns deterministic scores and actionable recommendations.
         """
+
+        # ============================================================
+        # DEBUG INFORMATION
+        # ============================================================
+
+        print("\n" + "=" * 70)
+        print(f"ANALYZING REPOSITORY: {name}")
+        print("=" * 70)
+
+        print(f"README EXISTS : {readme is not None}")
+        print(f"README LENGTH : {len(readme) if readme else 0}")
+        print(f"PATH COUNT    : {len(paths)}")
+        print(f"LANGUAGE      : {language}")
+        print(f"STARS         : {stars}")
+        print(f"FORKS         : {forks}")
+
+        print("\nFIRST 20 PATHS:")
+
+        for path in paths[:20]:
+            print(f"  {path}")
+
+        print("=" * 70)
+
+        # ============================================================
+        # NORMALIZE INPUT
+        # ============================================================
+
         paths_set = set(p.lower() for p in paths)
+
         readme_lower = (readme or "").lower()
 
-        # 1. Documentation Score (0-100)
+        # ============================================================
+        # 1. DOCUMENTATION SCORE
+        # ============================================================
+
         doc_score = 40
         doc_reasons = []
+
         if readme:
+
             doc_score += 25
+
             if len(readme) > 500:
                 doc_score += 15
-            if "architecture" in readme_lower or "design" in readme_lower:
+
+            if (
+                "architecture" in readme_lower
+                or "design" in readme_lower
+            ):
                 doc_score += 10
-                doc_reasons.append("README includes architecture/design breakdown.")
+
+                doc_reasons.append(
+                    "README includes architecture/design breakdown."
+                )
+
             else:
-                doc_reasons.append("README lacks an explicit Architecture section.")
-            if "installation" in readme_lower or "usage" in readme_lower or "getting started" in readme_lower:
+
+                doc_reasons.append(
+                    "README lacks an explicit Architecture section."
+                )
+
+            if (
+                "installation" in readme_lower
+                or "usage" in readme_lower
+                or "getting started" in readme_lower
+            ):
                 doc_score += 10
-                doc_reasons.append("Includes setup and getting started guide.")
+
+                doc_reasons.append(
+                    "Includes setup and getting started guide."
+                )
+
         else:
-            doc_reasons.append("Missing README.md file.")
 
-        doc_score = min(100, max(10, doc_score))
+            doc_reasons.append(
+                "Missing README.md file."
+            )
 
-        # 2. Architecture Score (0-100)
+        doc_score = min(
+            100,
+            max(10, doc_score)
+        )
+
+        # ============================================================
+        # 2. ARCHITECTURE SCORE
+        # ============================================================
+
         arch_score = 50
         arch_reasons = []
+
+        architecture_folders = [
+            "app/",
+            "src/",
+            "controllers/",
+            "services/",
+            "models/",
+            "routes/",
+            "components/",
+            "backend/",
+            "frontend/",
+        ]
+
         has_layers = any(
-            any(folder in p for folder in ["app/", "src/", "controllers/", "services/", "models/", "routes/", "components/", "backend/", "frontend/"])
-            for p in paths_set
+            any(
+                folder in path
+                for folder in architecture_folders
+            )
+            for path in paths_set
         )
+
         if has_layers:
+
             arch_score += 30
-            arch_reasons.append("Clean separation of concerns into modular directory layers.")
+
+            arch_reasons.append(
+                "Clean separation of concerns into modular directory layers."
+            )
+
         else:
-            arch_reasons.append("Flat file structure with limited component modularization.")
 
-        if any("config" in p or "env" in p or "settings" in p for p in paths_set):
+            arch_reasons.append(
+                "Flat file structure with limited component modularization."
+            )
+
+        has_config = any(
+            (
+                "config" in path
+                or "env" in path
+                or "settings" in path
+            )
+            for path in paths_set
+        )
+
+        if has_config:
+
             arch_score += 15
-            arch_reasons.append("Centralized configuration management detected.")
 
-        arch_score = min(100, max(20, arch_score))
+            arch_reasons.append(
+                "Centralized configuration management detected."
+            )
 
-        # 3. Code Quality Score (0-100)
+        arch_score = min(
+            100,
+            max(20, arch_score)
+        )
+
+        # ============================================================
+        # 3. CODE QUALITY SCORE
+        # ============================================================
+
         code_score = 60
         code_reasons = []
+
         if len(paths) > 5:
-            code_score += 15
-            code_reasons.append("Structured codebase with multiple modular files.")
-        if any(p.endswith((".py", ".ts", ".tsx", ".go", ".rs", ".java")) for p in paths_set):
-            code_score += 15
-            code_reasons.append("Written in a modern strongly-typed or structured language.")
 
-        code_score = min(100, max(30, code_score))
+            code_score += 15
 
-        # 4. Testing Score (0-100)
+            code_reasons.append(
+                "Structured codebase with multiple modular files."
+            )
+
+        structured_extensions = (
+            ".py",
+            ".ts",
+            ".tsx",
+            ".go",
+            ".rs",
+            ".java",
+        )
+
+        has_structured_code = any(
+            path.endswith(structured_extensions)
+            for path in paths_set
+        )
+
+        if has_structured_code:
+
+            code_score += 15
+
+            code_reasons.append(
+                "Written in a modern strongly-typed or structured language."
+            )
+
+        code_score = min(
+            100,
+            max(30, code_score)
+        )
+
+        # ============================================================
+        # 4. TESTING SCORE
+        # ============================================================
+
         test_score = 15
         test_reasons = []
-        has_tests = any(
-            "test" in p or "spec" in p or p.startswith("tests/")
-            for p in paths_set
-        )
-        if has_tests:
-            test_score = 85
-            test_reasons.append("Automated test suite identified in project files.")
-        else:
-            test_score = 30
-            test_reasons.append("No automated test suite (pytest/jest/unit tests) detected.")
 
-        # 5. DevOps Score (0-100)
+        has_tests = any(
+            (
+                "test" in path
+                or "spec" in path
+                or path.startswith("tests/")
+            )
+            for path in paths_set
+        )
+
+        if has_tests:
+
+            test_score = 85
+
+            test_reasons.append(
+                "Automated test suite identified in project files."
+            )
+
+        else:
+
+            test_score = 30
+
+            test_reasons.append(
+                "No automated test suite (pytest/jest/unit tests) detected."
+            )
+
+        # ============================================================
+        # 5. DEVOPS SCORE
+        # ============================================================
+
         devops_score = 15
         devops_reasons = []
-        has_docker = any("dockerfile" in p or "docker-compose" in p for p in paths_set)
-        has_ci = any(".github/workflows" in p or "ci" in p or "pipeline" in p for p in paths_set)
 
-        if has_docker:
-            devops_score += 40
-            devops_reasons.append("Containerization enabled via Dockerfile / Docker Compose.")
-        else:
-            devops_reasons.append("Missing Docker containerization configuration.")
-
-        if has_ci:
-            devops_score += 40
-            devops_reasons.append("Automated CI/CD workflows detected (GitHub Actions).")
-        else:
-            devops_reasons.append("Missing automated CI/CD deployment pipeline.")
-
-        devops_score = min(100, max(15, devops_score))
-
-        # 6. Scalability Score (0-100)
-        scale_score = 55
-        scale_reasons = []
-        if any(db in readme_lower or any(db in p for p in paths_set) for db in ["postgres", "redis", "mongodb", "kafka", "queue", "celery"]):
-            scale_score += 30
-            scale_reasons.append("Integrates production database / asynchronous cache or queue.")
-        else:
-            scale_reasons.append("No asynchronous task processing or caching layer identified.")
-
-        scale_score = min(100, max(35, scale_score))
-
-        # Weighted Overall Project Quality Score
-        overall_score = round(
-            (doc_score * 0.20) +
-            (arch_score * 0.20) +
-            (code_score * 0.20) +
-            (test_score * 0.15) +
-            (devops_score * 0.15) +
-            (scale_score * 0.10),
-            1
+        has_docker = any(
+            (
+                "dockerfile" in path
+                or "docker-compose" in path
+            )
+            for path in paths_set
         )
 
-        # Generate Actionable Improvements
+        has_ci = any(
+            (
+                ".github/workflows" in path
+                or "ci" in path
+                or "pipeline" in path
+            )
+            for path in paths_set
+        )
+
+        if has_docker:
+
+            devops_score += 40
+
+            devops_reasons.append(
+                "Containerization enabled via Dockerfile / Docker Compose."
+            )
+
+        else:
+
+            devops_reasons.append(
+                "Missing Docker containerization configuration."
+            )
+
+        if has_ci:
+
+            devops_score += 40
+
+            devops_reasons.append(
+                "Automated CI/CD workflows detected (GitHub Actions)."
+            )
+
+        else:
+
+            devops_reasons.append(
+                "Missing automated CI/CD deployment pipeline."
+            )
+
+        devops_score = min(
+            100,
+            max(15, devops_score)
+        )
+
+        # ============================================================
+        # 6. SCALABILITY SCORE
+        # ============================================================
+
+        scale_score = 55
+        scale_reasons = []
+
+        scalability_keywords = [
+            "postgres",
+            "redis",
+            "mongodb",
+            "kafka",
+            "queue",
+            "celery",
+        ]
+
+        has_scalability_stack = any(
+            (
+                keyword in readme_lower
+                or any(
+                    keyword in path
+                    for path in paths_set
+                )
+            )
+            for keyword in scalability_keywords
+        )
+
+        if has_scalability_stack:
+
+            scale_score += 30
+
+            scale_reasons.append(
+                "Integrates production database / asynchronous cache or queue."
+            )
+
+        else:
+
+            scale_reasons.append(
+                "No asynchronous task processing or caching layer identified."
+            )
+
+        scale_score = min(
+            100,
+            max(35, scale_score)
+        )
+
+        # ============================================================
+        # WEIGHTED OVERALL SCORE
+        # ============================================================
+
+        overall_score = round(
+            (doc_score * 0.20)
+            + (arch_score * 0.20)
+            + (code_score * 0.20)
+            + (test_score * 0.15)
+            + (devops_score * 0.15)
+            + (scale_score * 0.10),
+            1,
+        )
+
+        # ============================================================
+        # ACTIONABLE IMPROVEMENTS
+        # ============================================================
+
         improvements = []
+
         if test_score < 70:
-            improvements.append(f"Add automated tests (e.g. Pytest or Jest) to {name}.")
+
+            improvements.append(
+                f"Add automated tests (e.g. Pytest or Jest) to {name}."
+            )
+
         if devops_score < 60:
+
             if not has_docker:
-                improvements.append(f"Add a Dockerfile and docker-compose.yml to containerize {name}.")
+
+                improvements.append(
+                    f"Add a Dockerfile and docker-compose.yml "
+                    f"to containerize {name}."
+                )
+
             if not has_ci:
-                improvements.append(f"Configure a GitHub Actions workflow (.github/workflows/ci.yml) for automated builds and testing.")
+
+                improvements.append(
+                    "Configure a GitHub Actions workflow "
+                    "(.github/workflows/ci.yml) for automated builds and testing."
+                )
+
         if doc_score < 75:
-            improvements.append("Expand README.md with an explicit System Architecture diagram and step-by-step setup guide.")
+
+            improvements.append(
+                "Expand README.md with an explicit System Architecture "
+                "diagram and step-by-step setup guide."
+            )
+
         if scale_score < 70:
-            improvements.append("Introduce Redis caching or asynchronous Celery background workers for background processing.")
+
+            improvements.append(
+                "Introduce Redis caching or asynchronous Celery "
+                "background workers for background processing."
+            )
+
+        # ============================================================
+        # FINAL DEBUG SCORE
+        # ============================================================
+
+        print("\nSCORE BREAKDOWN")
+
+        print(f"Documentation : {doc_score}")
+        print(f"Architecture  : {arch_score}")
+        print(f"Code Quality  : {code_score}")
+        print(f"Testing       : {test_score}")
+        print(f"DevOps        : {devops_score}")
+        print(f"Scalability   : {scale_score}")
+
+        print("-" * 70)
+        print(f"OVERALL SCORE : {overall_score}")
+        print("=" * 70 + "\n")
+
+        # ============================================================
+        # RETURN RESULT
+        # ============================================================
 
         return {
             "overall_score": overall_score,
-            "documentation": {"score": doc_score, "reasons": doc_reasons},
-            "architecture": {"score": arch_score, "reasons": arch_reasons},
-            "code_quality": {"score": code_score, "reasons": code_reasons},
-            "testing": {"score": test_score, "reasons": test_reasons},
-            "devops": {"score": devops_score, "reasons": devops_reasons},
-            "scalability": {"score": scale_score, "reasons": scale_reasons},
-            "actionable_improvements": improvements
+
+            "documentation": {
+                "score": doc_score,
+                "reasons": doc_reasons,
+            },
+
+            "architecture": {
+                "score": arch_score,
+                "reasons": arch_reasons,
+            },
+
+            "code_quality": {
+                "score": code_score,
+                "reasons": code_reasons,
+            },
+
+            "testing": {
+                "score": test_score,
+                "reasons": test_reasons,
+            },
+
+            "devops": {
+                "score": devops_score,
+                "reasons": devops_reasons,
+            },
+
+            "scalability": {
+                "score": scale_score,
+                "reasons": scale_reasons,
+            },
+
+            "actionable_improvements": improvements,
         }
