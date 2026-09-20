@@ -20,6 +20,10 @@ router = APIRouter(
 
 
 def serialize_repository(repository: Repository) -> dict:
+    """
+    Convert a Repository database object into the API response format.
+    """
+
     metric = repository.metrics
 
     analysis = (
@@ -39,13 +43,20 @@ def serialize_repository(repository: Repository) -> dict:
         "html_url": f"https://github.com/{repository.full_name}",
         "default_branch": repository.default_branch,
         "is_fork": repository.is_fork,
+
+        # IMPORTANT:
+        # This comes from the latest RepositoryMetric saved in DB.
         "quality_score": (
             metric.overall_score
             if metric
             else 0
         ),
+
         "analysis": analysis,
-        "cached": True,
+
+        # This endpoint is now performing a fresh analysis.
+        "cached": False,
+
         "updated_at": (
             repository.updated_at.isoformat()
             if repository.updated_at
@@ -59,10 +70,19 @@ async def analyze_single_repository(
     analyzer: RepositoryAnalyzer,
     repo: dict,
 ):
+    """
+    Fetch README + repository tree from GitHub and analyze one repository.
+    """
+
     owner = repo["owner"]["login"]
     name = repo["name"]
-    branch = repo.get("default_branch") or "main"
 
+    branch = (
+        repo.get("default_branch")
+        or "main"
+    )
+
+    # Fetch README and file tree concurrently.
     readme_task = client.get_repo_readme(
         owner,
         name,
@@ -79,13 +99,20 @@ async def analyze_single_repository(
         tree_task,
     )
 
+    # Run the CURRENT RepositoryAnalyzer.
     analysis = analyzer.analyze_repo(
         name=name,
         readme=readme,
         paths=paths,
         language=repo.get("language"),
-        stars=repo.get("stargazers_count", 0),
-        forks=repo.get("forks_count", 0),
+        stars=repo.get(
+            "stargazers_count",
+            0,
+        ),
+        forks=repo.get(
+            "forks_count",
+            0,
+        ),
     )
 
     return {
@@ -100,6 +127,10 @@ async def analyze_repositories(
     client: GitHubClient,
     github_repos: list[dict],
 ):
+    """
+    Analyze all GitHub repositories concurrently.
+    """
+
     analyzer = RepositoryAnalyzer()
 
     tasks = [
@@ -120,6 +151,9 @@ async def analyze_repositories(
 
     for result in results:
         if isinstance(result, Exception):
+            print(
+                f"Repository analysis failed: {result}"
+            )
             continue
 
         successful.append(result)
@@ -132,9 +166,15 @@ def save_repository_analysis(
     user: User,
     item: dict,
 ):
+    """
+    Save the latest GitHub repository information
+    and analysis scores into PostgreSQL.
+    """
+
     repo = item["github_repo"]
     analysis = item["analysis"]
 
+    # Find existing repository.
     existing = (
         db.query(Repository)
         .filter(
@@ -144,42 +184,70 @@ def save_repository_analysis(
         .first()
     )
 
+    # Create repository if it doesn't exist.
     if not existing:
         existing = Repository(
             user_id=user.id,
             github_repo_id=repo["id"],
         )
+
         db.add(existing)
 
+    # ---------------------------------------------------------
+    # Update repository information
+    # ---------------------------------------------------------
+
     existing.name = repo["name"]
+
     existing.full_name = repo["full_name"]
-    existing.description = repo.get("description")
-    existing.language = repo.get("language")
+
+    existing.description = repo.get(
+        "description"
+    )
+
+    existing.language = repo.get(
+        "language"
+    )
+
     existing.stars_count = repo.get(
         "stargazers_count",
         0,
     )
+
     existing.forks_count = repo.get(
         "forks_count",
         0,
     )
+
     existing.is_fork = repo.get(
         "fork",
         False,
     )
+
     existing.default_branch = (
         repo.get("default_branch")
         or "main"
     )
-    existing.readme_content = item["readme"]
-    existing.file_tree_json = item["paths"]
+
+    existing.readme_content = item[
+        "readme"
+    ]
+
+    existing.file_tree_json = item[
+        "paths"
+    ]
 
     db.flush()
+
+    # ---------------------------------------------------------
+    # Find/create RepositoryMetric
+    # ---------------------------------------------------------
 
     metric = (
         db.query(RepositoryMetric)
         .filter(
-            RepositoryMetric.repo_id == existing.id
+            RepositoryMetric.repo_id
+            == existing.id
         )
         .first()
     )
@@ -188,44 +256,82 @@ def save_repository_analysis(
         metric = RepositoryMetric(
             repo_id=existing.id
         )
+
         db.add(metric)
+
+    # ---------------------------------------------------------
+    # Save latest scores
+    # ---------------------------------------------------------
 
     metric.overall_score = analysis.get(
         "overall_score",
         0,
     )
 
-    metric.documentation_score = analysis.get(
-        "documentation",
-        {},
-    ).get("score", 0)
+    metric.documentation_score = (
+        analysis.get(
+            "documentation",
+            {},
+        ).get(
+            "score",
+            0,
+        )
+    )
 
-    metric.architecture_score = analysis.get(
-        "architecture",
-        {},
-    ).get("score", 0)
+    metric.architecture_score = (
+        analysis.get(
+            "architecture",
+            {},
+        ).get(
+            "score",
+            0,
+        )
+    )
 
-    metric.code_quality_score = analysis.get(
-        "code_quality",
-        {},
-    ).get("score", 0)
+    metric.code_quality_score = (
+        analysis.get(
+            "code_quality",
+            {},
+        ).get(
+            "score",
+            0,
+        )
+    )
 
-    metric.testing_score = analysis.get(
-        "testing",
-        {},
-    ).get("score", 0)
+    metric.testing_score = (
+        analysis.get(
+            "testing",
+            {},
+        ).get(
+            "score",
+            0,
+        )
+    )
 
-    metric.devops_score = analysis.get(
-        "devops",
-        {},
-    ).get("score", 0)
+    metric.devops_score = (
+        analysis.get(
+            "devops",
+            {},
+        ).get(
+            "score",
+            0,
+        )
+    )
 
-    metric.scalability_score = analysis.get(
-        "scalability",
-        {},
-    ).get("score", 0)
+    metric.scalability_score = (
+        analysis.get(
+            "scalability",
+            {},
+        ).get(
+            "score",
+            0,
+        )
+    )
 
+    # Save complete analysis JSON.
     metric.analysis_json = analysis
+
+    # Record analysis time.
     metric.analyzed_at = datetime.utcnow()
 
     return existing
@@ -234,12 +340,31 @@ def save_repository_analysis(
 @router.get("")
 async def list_repositories(
     refresh: bool = Query(
-        False,
+        True,
         description="Force a fresh GitHub analysis",
     ),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_user
+    ),
+    db: Session = Depends(
+        get_db
+    ),
 ):
+    """
+    Get the user's GitHub repositories.
+
+    During development, this endpoint performs
+    a fresh analysis every time.
+
+    This is intentional because RepositoryAnalyzer
+    is actively being developed and we don't want
+    stale PostgreSQL scores to be returned.
+    """
+
+    # ---------------------------------------------------------
+    # Authentication
+    # ---------------------------------------------------------
+
     if not current_user.access_token:
         raise HTTPException(
             status_code=401,
@@ -247,49 +372,40 @@ async def list_repositories(
         )
 
     # ---------------------------------------------------------
-    # FAST PATH
-    # ---------------------------------------------------------
-    #
-    # If repositories already exist in PostgreSQL and the user
-    # did not explicitly request refresh, return cached data.
-    #
-    # This is what makes dashboard refreshes fast.
-    # ---------------------------------------------------------
-
-    cached_repositories = (
-        db.query(Repository)
-        .filter(
-            Repository.user_id == current_user.id
-        )
-        .all()
-    )
-
-    if cached_repositories and not refresh:
-        return [
-            serialize_repository(repo)
-            for repo in cached_repositories
-        ]
-
-    # ---------------------------------------------------------
-    # FRESH GITHUB ANALYSIS
+    # GitHub client
     # ---------------------------------------------------------
 
     client = GitHubClient(
         current_user.access_token
     )
 
+    # ---------------------------------------------------------
+    # Fetch repositories from GitHub
+    # ---------------------------------------------------------
+
     try:
-        github_repos = await client.get_user_repos()
+        github_repos = (
+            await client.get_user_repos()
+        )
+
     except GitHubAPIError as exc:
         raise HTTPException(
             status_code=502,
             detail=str(exc),
         )
 
+    # ---------------------------------------------------------
+    # Analyze repositories
+    # ---------------------------------------------------------
+
     analyzed = await analyze_repositories(
         client,
         github_repos,
     )
+
+    # ---------------------------------------------------------
+    # Save fresh analysis
+    # ---------------------------------------------------------
 
     results = []
 
@@ -304,25 +420,54 @@ async def list_repositories(
             repository
         )
 
+    # ---------------------------------------------------------
+    # Commit all changes
+    # ---------------------------------------------------------
+
     db.commit()
 
+    # ---------------------------------------------------------
+    # Refresh SQLAlchemy objects
+    # ---------------------------------------------------------
+
+    for repository in results:
+        db.refresh(repository)
+
+    # ---------------------------------------------------------
+    # Return fresh data
+    # ---------------------------------------------------------
+
     return [
-        serialize_repository(repo)
-        for repo in results
+        serialize_repository(repository)
+        for repository in results
     ]
 
 
 @router.get("/{repo_id}")
 async def get_repository(
     repo_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_user
+    ),
+    db: Session = Depends(
+        get_db
+    ),
 ):
+    """
+    Return a single repository from the database.
+
+    The repository will contain the latest analysis
+    generated by /api/repos.
+    """
+
     repository = (
         db.query(Repository)
         .filter(
-            Repository.user_id == current_user.id,
-            Repository.github_repo_id == repo_id,
+            Repository.user_id
+            == current_user.id,
+
+            Repository.github_repo_id
+            == repo_id,
         )
         .first()
     )
