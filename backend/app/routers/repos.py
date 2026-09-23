@@ -19,10 +19,11 @@ router = APIRouter(
 )
 
 
+# ============================================================
+# SERIALIZATION
+# ============================================================
+
 def serialize_repository(repository: Repository) -> dict:
-    """
-    Convert a Repository database object into the API response format.
-    """
 
     metric = repository.metrics
 
@@ -40,12 +41,12 @@ def serialize_repository(repository: Repository) -> dict:
         "language": repository.language,
         "stars_count": repository.stars_count,
         "forks_count": repository.forks_count,
-        "html_url": f"https://github.com/{repository.full_name}",
+        "html_url": (
+            f"https://github.com/{repository.full_name}"
+        ),
         "default_branch": repository.default_branch,
         "is_fork": repository.is_fork,
 
-        # IMPORTANT:
-        # This comes from the latest RepositoryMetric saved in DB.
         "quality_score": (
             metric.overall_score
             if metric
@@ -54,8 +55,7 @@ def serialize_repository(repository: Repository) -> dict:
 
         "analysis": analysis,
 
-        # This endpoint is now performing a fresh analysis.
-        "cached": False,
+        "cached": True,
 
         "updated_at": (
             repository.updated_at.isoformat()
@@ -65,116 +65,239 @@ def serialize_repository(repository: Repository) -> dict:
     }
 
 
+# ============================================================
+# SINGLE REPOSITORY ANALYSIS
+# ============================================================
+
 async def analyze_single_repository(
     client: GitHubClient,
     analyzer: RepositoryAnalyzer,
     repo: dict,
 ):
-    """
-    Fetch README + repository tree from GitHub and analyze one repository.
-    """
 
-    owner = repo["owner"]["login"]
-    name = repo["name"]
+    owner_data = repo.get("owner") or {}
+
+    owner = owner_data.get("login")
+    name = repo.get("name")
+
+    if not owner or not name:
+        print(
+            "[GitVia] Skipping malformed repository."
+        )
+        return None
 
     branch = (
         repo.get("default_branch")
         or "main"
     )
 
-    # Fetch README and file tree concurrently.
-    readme_task = client.get_repo_readme(
-        owner,
-        name,
+    full_name = f"{owner}/{name}"
+
+    print(
+        f"[GitVia] START → {full_name}"
     )
 
-    tree_task = client.get_repo_tree(
-        owner,
-        name,
-        branch,
-    )
+    try:
 
-    readme, paths = await asyncio.gather(
-        readme_task,
-        tree_task,
-    )
+        # ----------------------------------------------------
+        # Fetch README
+        # ----------------------------------------------------
 
-    # Run the CURRENT RepositoryAnalyzer.
-    analysis = analyzer.analyze_repo(
-        name=name,
-        readme=readme,
-        paths=paths,
-        language=repo.get("language"),
-        stars=repo.get(
-            "stargazers_count",
+        print(
+            f"[GitVia] {full_name} → fetching README..."
+        )
+
+        readme = await asyncio.wait_for(
+            client.get_repo_readme(
+                owner,
+                name,
+            ),
+            timeout=45,
+        )
+
+        # ----------------------------------------------------
+        # Fetch repository tree
+        # ----------------------------------------------------
+
+        print(
+            f"[GitVia] {full_name} → fetching tree..."
+        )
+
+        paths = await asyncio.wait_for(
+            client.get_repo_tree(
+                owner,
+                name,
+                branch,
+            ),
+            timeout=45,
+        )
+
+        print(
+            f"[GitVia] {full_name} → "
+            f"tree received ({len(paths)} paths)"
+        )
+
+        # ----------------------------------------------------
+        # Run analyzer
+        # ----------------------------------------------------
+
+        print(
+            f"[GitVia] {full_name} → analyzing..."
+        )
+
+        analysis = analyzer.analyze_repo(
+            name=name,
+            readme=readme,
+            paths=paths,
+            language=repo.get("language"),
+            stars=repo.get(
+                "stargazers_count",
+                0,
+            ),
+            forks=repo.get(
+                "forks_count",
+                0,
+            ),
+        )
+
+        score = analysis.get(
+            "overall_score",
             0,
-        ),
-        forks=repo.get(
-            "forks_count",
-            0,
-        ),
-    )
+        )
 
-    return {
-        "github_repo": repo,
-        "readme": readme,
-        "paths": paths,
-        "analysis": analysis,
-    }
+        print(
+            f"[GitVia] SUCCESS → "
+            f"{full_name} = {score}"
+        )
 
+        return {
+            "github_repo": repo,
+            "readme": readme,
+            "paths": paths,
+            "analysis": analysis,
+        }
+
+    except asyncio.TimeoutError:
+
+        print(
+            f"[GitVia] TIMEOUT → "
+            f"{full_name}"
+        )
+
+        return None
+
+    except GitHubAPIError as exc:
+
+        print(
+            f"[GitVia] GITHUB ERROR → "
+            f"{full_name}: {exc}"
+        )
+
+        return None
+
+    except Exception as exc:
+
+        print(
+            f"[GitVia] ERROR → "
+            f"{full_name}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+        return None
+
+
+# ============================================================
+# ANALYZE ALL REPOSITORIES
+# ============================================================
 
 async def analyze_repositories(
     client: GitHubClient,
     github_repos: list[dict],
 ):
-    """
-    Analyze all GitHub repositories concurrently.
-    """
 
     analyzer = RepositoryAnalyzer()
 
-    tasks = [
-        analyze_single_repository(
+    successful = []
+
+    total = len(github_repos)
+
+    print(
+        "=================================================="
+    )
+
+    print(
+        f"[GitVia] ANALYZING {total} REPOSITORIES"
+    )
+
+    print(
+        "=================================================="
+    )
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    #
+    # Do NOT launch all repositories simultaneously.
+    #
+    # GitHub API calls are network-bound and launching 13+
+    # repositories at once can cause connection timeouts.
+    #
+    # We intentionally process them sequentially here.
+    # --------------------------------------------------------
+
+    for index, repo in enumerate(
+        github_repos,
+        start=1,
+    ):
+
+        print(
+            f"[GitVia] "
+            f"Repository {index}/{total}"
+        )
+
+        result = await analyze_single_repository(
             client,
             analyzer,
             repo,
         )
-        for repo in github_repos
-    ]
 
-    results = await asyncio.gather(
-        *tasks,
-        return_exceptions=True,
+        if result is not None:
+            successful.append(result)
+
+        print(
+            f"[GitVia] "
+            f"Progress: {index}/{total}"
+        )
+
+    print(
+        "=================================================="
     )
 
-    successful = []
+    print(
+        f"[GitVia] ANALYSIS COMPLETE → "
+        f"{len(successful)}/{total} successful"
+    )
 
-    for result in results:
-        if isinstance(result, Exception):
-            print(
-                f"Repository analysis failed: {result}"
-            )
-            continue
-
-        successful.append(result)
+    print(
+        "=================================================="
+    )
 
     return successful
 
+
+# ============================================================
+# SAVE ANALYSIS
+# ============================================================
 
 def save_repository_analysis(
     db: Session,
     user: User,
     item: dict,
 ):
-    """
-    Save the latest GitHub repository information
-    and analysis scores into PostgreSQL.
-    """
 
     repo = item["github_repo"]
+
     analysis = item["analysis"]
 
-    # Find existing repository.
     existing = (
         db.query(Repository)
         .filter(
@@ -184,18 +307,14 @@ def save_repository_analysis(
         .first()
     )
 
-    # Create repository if it doesn't exist.
     if not existing:
+
         existing = Repository(
             user_id=user.id,
             github_repo_id=repo["id"],
         )
 
         db.add(existing)
-
-    # ---------------------------------------------------------
-    # Update repository information
-    # ---------------------------------------------------------
 
     existing.name = repo["name"]
 
@@ -239,10 +358,6 @@ def save_repository_analysis(
 
     db.flush()
 
-    # ---------------------------------------------------------
-    # Find/create RepositoryMetric
-    # ---------------------------------------------------------
-
     metric = (
         db.query(RepositoryMetric)
         .filter(
@@ -253,15 +368,12 @@ def save_repository_analysis(
     )
 
     if not metric:
+
         metric = RepositoryMetric(
             repo_id=existing.id
         )
 
         db.add(metric)
-
-    # ---------------------------------------------------------
-    # Save latest scores
-    # ---------------------------------------------------------
 
     metric.overall_score = analysis.get(
         "overall_score",
@@ -269,147 +381,182 @@ def save_repository_analysis(
     )
 
     metric.documentation_score = (
-        analysis.get(
-            "documentation",
-            {},
-        ).get(
-            "score",
-            0,
-        )
+        analysis
+        .get("documentation", {})
+        .get("score", 0)
     )
 
     metric.architecture_score = (
-        analysis.get(
-            "architecture",
-            {},
-        ).get(
-            "score",
-            0,
-        )
+        analysis
+        .get("architecture", {})
+        .get("score", 0)
     )
 
     metric.code_quality_score = (
-        analysis.get(
-            "code_quality",
-            {},
-        ).get(
-            "score",
-            0,
-        )
+        analysis
+        .get("code_quality", {})
+        .get("score", 0)
     )
 
     metric.testing_score = (
-        analysis.get(
-            "testing",
-            {},
-        ).get(
-            "score",
-            0,
-        )
+        analysis
+        .get("testing", {})
+        .get("score", 0)
     )
 
     metric.devops_score = (
-        analysis.get(
-            "devops",
-            {},
-        ).get(
-            "score",
-            0,
-        )
+        analysis
+        .get("devops", {})
+        .get("score", 0)
     )
 
     metric.scalability_score = (
-        analysis.get(
-            "scalability",
-            {},
-        ).get(
-            "score",
-            0,
-        )
+        analysis
+        .get("scalability", {})
+        .get("score", 0)
     )
 
-    # Save complete analysis JSON.
     metric.analysis_json = analysis
 
-    # Record analysis time.
     metric.analyzed_at = datetime.utcnow()
 
     return existing
 
 
+# ============================================================
+# GET ALL REPOSITORIES
+# ============================================================
+
 @router.get("")
 async def list_repositories(
+
     refresh: bool = Query(
-        True,
-        description="Force a fresh GitHub analysis",
+        False,
+        description=(
+            "Force a fresh GitHub analysis"
+        ),
     ),
+
     current_user: User = Depends(
         get_current_user
     ),
-    db: Session = Depends(
-        get_db
-    ),
+
+    db: Session = Depends(get_db),
 ):
-    """
-    Get the user's GitHub repositories.
 
-    During development, this endpoint performs
-    a fresh analysis every time.
+    print(
+        "[GitVia] GET /api/repos"
+    )
 
-    This is intentional because RepositoryAnalyzer
-    is actively being developed and we don't want
-    stale PostgreSQL scores to be returned.
-    """
-
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
     # Authentication
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     if not current_user.access_token:
+
         raise HTTPException(
             status_code=401,
-            detail="GitHub account is not connected",
+            detail=(
+                "GitHub account is not connected"
+            ),
         )
 
-    # ---------------------------------------------------------
-    # GitHub client
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # CACHE
+    # --------------------------------------------------------
+
+    cached_repositories = (
+        db.query(Repository)
+        .filter(
+            Repository.user_id
+            == current_user.id
+        )
+        .all()
+    )
+
+    print(
+        f"[GitVia] Cached repositories: "
+        f"{len(cached_repositories)}"
+    )
+
+    # --------------------------------------------------------
+    # Return cached data unless refresh was requested.
+    # --------------------------------------------------------
+
+    if cached_repositories and not refresh:
+
+        print(
+            "[GitVia] Returning cached repository data."
+        )
+
+        return [
+            serialize_repository(repo)
+            for repo in cached_repositories
+        ]
+
+    # --------------------------------------------------------
+    # FRESH GITHUB ANALYSIS
+    # --------------------------------------------------------
+
+    print(
+        "[GitVia] Starting fresh GitHub analysis..."
+    )
 
     client = GitHubClient(
         current_user.access_token
     )
 
-    # ---------------------------------------------------------
-    # Fetch repositories from GitHub
-    # ---------------------------------------------------------
-
     try:
+
         github_repos = (
-            await client.get_user_repos()
+            await asyncio.wait_for(
+                client.get_user_repos(),
+                timeout=60,
+            )
+        )
+
+    except asyncio.TimeoutError:
+
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "GitHub repository request timed out."
+            ),
         )
 
     except GitHubAPIError as exc:
+
+        print(
+            f"[GitVia] GitHub error: {exc}"
+        )
+
         raise HTTPException(
             status_code=502,
             detail=str(exc),
         )
 
-    # ---------------------------------------------------------
+    print(
+        f"[GitVia] GitHub returned "
+        f"{len(github_repos)} repositories."
+    )
+
+    # --------------------------------------------------------
     # Analyze repositories
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
 
     analyzed = await analyze_repositories(
         client,
         github_repos,
     )
 
-    # ---------------------------------------------------------
-    # Save fresh analysis
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # Save
+    # --------------------------------------------------------
 
     results = []
 
     for item in analyzed:
+
         repository = save_repository_analysis(
             db,
             current_user,
@@ -420,45 +567,49 @@ async def list_repositories(
             repository
         )
 
-    # ---------------------------------------------------------
-    # Commit all changes
-    # ---------------------------------------------------------
+    # --------------------------------------------------------
+    # Commit once
+    # --------------------------------------------------------
 
     db.commit()
 
-    # ---------------------------------------------------------
-    # Refresh SQLAlchemy objects
-    # ---------------------------------------------------------
+    print(
+        f"[GitVia] DATABASE SAVE COMPLETE → "
+        f"{len(results)} repositories"
+    )
 
-    for repository in results:
-        db.refresh(repository)
+    # --------------------------------------------------------
+    # Serialize response
+    # --------------------------------------------------------
 
-    # ---------------------------------------------------------
-    # Return fresh data
-    # ---------------------------------------------------------
-
-    return [
-        serialize_repository(repository)
-        for repository in results
+    response = [
+        serialize_repository(repo)
+        for repo in results
     ]
 
+    print(
+        f"[GitVia] RESPONSE READY → "
+        f"{len(response)} repositories"
+    )
+
+    return response
+
+
+# ============================================================
+# GET SINGLE REPOSITORY
+# ============================================================
 
 @router.get("/{repo_id}")
 async def get_repository(
+
     repo_id: int,
+
     current_user: User = Depends(
         get_current_user
     ),
-    db: Session = Depends(
-        get_db
-    ),
-):
-    """
-    Return a single repository from the database.
 
-    The repository will contain the latest analysis
-    generated by /api/repos.
-    """
+    db: Session = Depends(get_db),
+):
 
     repository = (
         db.query(Repository)
@@ -473,6 +624,7 @@ async def get_repository(
     )
 
     if not repository:
+
         raise HTTPException(
             status_code=404,
             detail="Repository not found",
