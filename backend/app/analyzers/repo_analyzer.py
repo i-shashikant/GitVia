@@ -34,6 +34,7 @@ class RepositoryAnalyzer:
         language: str | None,
         stars: int = 0,
         forks: int = 0,
+        sampled_files: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """
         Analyze a GitHub repository across six engineering dimensions:
@@ -375,7 +376,7 @@ class RepositoryAnalyzer:
             for path in paths_set
         )
 
-        if has_docker:
+        if has_real_docker_evidence:
 
             devops_score += 40
 
@@ -482,7 +483,7 @@ class RepositoryAnalyzer:
 
         if devops_score < 60:
 
-            if not has_docker:
+            if not has_real_docker_evidence:
 
                 improvements.append(
                     f"Add a Dockerfile and docker-compose.yml "

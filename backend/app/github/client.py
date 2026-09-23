@@ -57,42 +57,74 @@ class GitHubClient:
                         headers=self.headers,
                         **kwargs,
                     )
-            except httpx.ConnectTimeout as exc:
-                raise GitHubAPIError(f"Connection to GitHub timed out: {url}") from exc
-            except httpx.ReadTimeout as exc:
-                raise GitHubAPIError(f"GitHub response timed out: {url}") from exc
-            except httpx.RequestError as exc:
-                raise GitHubAPIError(f"GitHub request failed: {exc}") from exc
 
+            except httpx.ConnectTimeout as exc:
+                raise GitHubAPIError(
+                    f"Connection to GitHub timed out: {url}"
+                ) from exc
+
+            except httpx.ReadTimeout as exc:
+                raise GitHubAPIError(
+                    f"GitHub response timed out: {url}"
+                ) from exc
+
+            except httpx.RequestError as exc:
+                raise GitHubAPIError(
+                    f"GitHub request failed: {exc}"
+                ) from exc
+
+            # Handle GitHub rate limiting.
             if response.status_code == 403 and attempt < retries:
                 retry_after = response.headers.get("Retry-After")
                 remaining = response.headers.get("X-RateLimit-Remaining")
+
                 if retry_after or remaining == "0":
-                    wait_s = int(retry_after or "2")
-                    logger.warning("GitHub rate limited; retrying in %ss", wait_s)
+                    try:
+                        wait_s = int(retry_after or "2")
+                    except ValueError:
+                        wait_s = 2
+
+                    logger.warning(
+                        "GitHub rate limited; retrying in %ss",
+                        wait_s,
+                    )
+
                     await asyncio.sleep(min(wait_s, 10))
                     continue
 
             if response.status_code >= 400:
                 try:
                     error_data = response.json()
-                    message = error_data.get("message", response.text)
+                    message = error_data.get(
+                        "message",
+                        response.text,
+                    )
                 except Exception:
                     message = response.text
 
                 raise GitHubAPIError(
-                    f"GitHub API returned {response.status_code}: {message}"
+                    f"GitHub API returned "
+                    f"{response.status_code}: {message}"
                 )
 
             return response
 
-        raise GitHubAPIError(f"GitHub request failed: {url}")
+        raise GitHubAPIError(
+            f"GitHub request failed: {url}"
+        )
 
     async def get_user(self) -> dict[str, Any]:
-        response = await self._request("GET", f"{self.BASE_URL}/user")
+        response = await self._request(
+            "GET",
+            f"{self.BASE_URL}/user",
+        )
+
         return response.json()
 
-    async def get_user_repos(self, per_page: int = 100) -> list[dict[str, Any]]:
+    async def get_user_repos(
+        self,
+        per_page: int = 100,
+    ) -> list[dict[str, Any]]:
         repos: list[dict[str, Any]] = []
         page = 1
 
@@ -110,6 +142,7 @@ class GitHubClient:
             )
 
             page_repos = response.json()
+
             if not page_repos:
                 break
 
@@ -120,21 +153,35 @@ class GitHubClient:
 
             page += 1
 
-        filtered = []
+        filtered: list[dict[str, Any]] = []
+
         for repo in repos:
             if self.settings.skip_forks and repo.get("fork"):
                 continue
+
             if self.settings.skip_archived and repo.get("archived"):
                 continue
+
             filtered.append(repo)
 
         return filtered
 
-    async def get_repo_readme(self, owner: str, repo: str) -> str | None:
-        url = f"{self.BASE_URL}/repos/{owner}/{repo}/readme"
+    async def get_repo_readme(
+        self,
+        owner: str,
+        repo: str,
+    ) -> str | None:
+        url = (
+            f"{self.BASE_URL}/repos/"
+            f"{owner}/{repo}/readme"
+        )
 
         try:
-            response = await self._request("GET", url)
+            response = await self._request(
+                "GET",
+                url,
+            )
+
         except GitHubAPIError as exc:
             if "returned 404" in str(exc):
                 return None
@@ -142,11 +189,15 @@ class GitHubClient:
 
         data = response.json()
         content = data.get("content")
+
         if not content:
             return None
 
         try:
-            return base64.b64decode(content).decode("utf-8", errors="replace")
+            return base64.b64decode(content).decode(
+                "utf-8",
+                errors="replace",
+            )
         except Exception:
             return None
 
@@ -156,69 +207,90 @@ class GitHubClient:
         repo: str,
         branch: str = "main",
     ) -> list[str]:
-        url = f"{self.BASE_URL}/repos/{owner}/{repo}/git/trees/{branch}"
+        url = (
+            f"{self.BASE_URL}/repos/"
+            f"{owner}/{repo}/git/trees/{branch}"
+        )
 
         try:
             response = await self._request(
                 "GET",
                 url,
-                params={"recursive": "1"},
+                params={
+                    "recursive": "1",
+                },
             )
+
         except GitHubAPIError as exc:
             if "returned 404" in str(exc):
                 return []
+
             raise
 
         data = response.json()
         tree = data.get("tree", [])
-        paths = [item.get("path") for item in tree if item.get("path")]
+
+        paths = [
+            item.get("path")
+            for item in tree
+            if item.get("path")
+        ]
+
         return paths[: self.settings.max_tree_paths]
-    
 
-        async def get_repo_file(
-            self,
-            owner: str,
-            repo: str,
-            path: str,
-            ref: str | None = None,
-        ) -> str | None:
-            """
-            Fetch a single repository file from GitHub.
+    async def get_repo_file(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        ref: str | None = None,
+    ) -> str | None:
+        """
+        Fetch a single repository file from GitHub.
 
-            We intentionally sample selected files instead of downloading
-            the entire repository.
-            """
-            url = f"{self.BASE_URL}/repos/{owner}/{repo}/contents/{path}"
+        Only selected files should be sampled instead of
+        downloading the entire repository.
+        """
 
-            params = {}
-            if ref:
-                params["ref"] = ref
+        url = (
+            f"{self.BASE_URL}/repos/"
+            f"{owner}/{repo}/contents/{path}"
+        )
 
-            try:
-                response = await self._request(
-                    "GET",
-                    url,
-                    params=params,
-                )
-            except GitHubAPIError as exc:
-                if "returned 404" in str(exc):
-                    return None
-                raise
+        params: dict[str, str] = {}
 
-            data = response.json()
+        if ref:
+            params["ref"] = ref
 
-            # GitHub returns a list when the path points to a directory.
-            if isinstance(data, list):
+        try:
+            response = await self._request(
+                "GET",
+                url,
+                params=params,
+            )
+
+        except GitHubAPIError as exc:
+            if "returned 404" in str(exc):
                 return None
 
-            content = data.get("content")
-            if not content:
-                return None
+            raise
 
-            try:
-                return base64.b64decode(content).decode(
-                    "utf-8",
-                    errors="replace",
-                )
-            except Exception:
-                return None
+        data = response.json()
+
+        # GitHub returns a list when the path points
+        # to a directory instead of a file.
+        if isinstance(data, list):
+            return None
+
+        content = data.get("content")
+
+        if not content:
+            return None
+
+        try:
+            return base64.b64decode(content).decode(
+                "utf-8",
+                errors="replace",
+            )
+        except Exception:
+            return None

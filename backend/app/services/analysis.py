@@ -74,12 +74,32 @@ def _has_cached_analysis(db: Session, user: User) -> bool:
         .filter(Repository.user_id == user.id)
         .count()
     )
+
     profile = (
         db.query(DeveloperProfile)
         .filter(DeveloperProfile.user_id == user.id)
         .first()
     )
-    return bool(repo_count and profile)
+
+    if repo_count == 0 or profile is None:
+        return False
+
+    # A profile with no meaningful analysis is not a valid cache.
+    has_scores = any(
+        float(value or 0) > 0
+        for value in (
+            profile.portfolio_score,
+            profile.github_score,
+            profile.readiness_score,
+        )
+    )
+
+    has_dimensions = bool(
+        isinstance(profile.skill_scores, dict)
+        and profile.skill_scores.get("_dimension_averages")
+    )
+
+    return has_scores and has_dimensions
 
 
 def _profile_from_row(row: DeveloperProfile) -> dict[str, Any]:
@@ -225,7 +245,7 @@ async def _analyze_single_repository(
 
             sampled_files: dict[str, str] = {}
 
-            for path in selected_files[:12]:
+            async def fetch_sample(path: str) -> tuple[str, str | None]:
                 try:
                     content = await asyncio.wait_for(
                         client.get_repo_file(
@@ -234,12 +254,10 @@ async def _analyze_single_repository(
                             path,
                             branch,
                         ),
-                        timeout=30,
+                        timeout=20,
                     )
 
-                    if content:
-                        # Prevent enormous files from destroying analysis.
-                        sampled_files[path] = content[:12000]
+                    return path, content[:12000] if content else None
 
                 except (asyncio.TimeoutError, GitHubAPIError) as exc:
                     logger.debug(
@@ -249,6 +267,21 @@ async def _analyze_single_repository(
                         path,
                         exc,
                     )
+                    return path, None
+
+
+            sample_results = await asyncio.gather(
+                *[
+                    fetch_sample(path)
+                    for path in selected_files[:12]
+                ]
+            )
+
+            sampled_files: dict[str, str] = {
+                path: content
+                for path, content in sample_results
+                if content
+            }
 
         except (asyncio.TimeoutError, GitHubAPIError) as exc:
             logger.warning(
