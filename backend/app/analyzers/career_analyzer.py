@@ -1,17 +1,28 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import defaultdict
 from typing import Any
 
 
 class CareerAnalyzer:
     """
-    Converts analyzed GitHub repository evidence into a deterministic
-    developer career profile.
+    Evidence-based developer career analyzer.
 
-    No hardcoded career score is used.
-    Everything is derived from repository metrics and detected technologies.
+    Scores are derived from:
+    - repository languages
+    - repository technology stacks
+    - structured repository analysis
+    - repository quality scores
+    - engineering dimensions
+    - repeated technology evidence
+
+    The analyzer does NOT award skill points simply because a technology
+    appears in an arbitrary recommendation or sentence.
     """
+
+    # ---------------------------------------------------------
+    # ROLE REQUIREMENTS
+    # ---------------------------------------------------------
 
     ROLE_REQUIREMENTS = {
         "Python Backend Developer": {
@@ -81,6 +92,70 @@ class CareerAnalyzer:
         },
     }
 
+    # Aliases are used against explicit repository evidence.
+    SKILL_ALIASES = {
+        "Python": ["python", "python3"],
+        "JavaScript": ["javascript", "js"],
+        "TypeScript": ["typescript", "ts"],
+        "React": ["react", "reactjs"],
+        "Vue": ["vue", "vuejs"],
+        "Next.js": ["next.js", "nextjs"],
+        "FastAPI": ["fastapi"],
+        "Flask": ["flask"],
+        "Django": ["django"],
+        "SQL": ["sql", "sqlite", "mysql", "postgres", "postgresql"],
+        "PostgreSQL": ["postgresql", "postgres"],
+        "Redis": ["redis"],
+        "Celery": ["celery"],
+        "Docker": ["docker", "dockerfile", "docker compose", "docker-compose"],
+        "AWS": [
+            "aws",
+            "amazon web services",
+            "ec2",
+            "s3",
+            "lambda",
+            "ecs",
+            "eks",
+            "rds",
+            "cloudfront",
+        ],
+        "Machine Learning": [
+            "machine learning",
+            "machine-learning",
+            "ml",
+            "classification",
+            "regression",
+            "clustering",
+        ],
+        "Pandas": ["pandas"],
+        "NumPy": ["numpy", "np"],
+        "Scikit-learn": ["scikit-learn", "sklearn"],
+        "Jupyter": ["jupyter", "notebook", "ipynb"],
+        "HTML": ["html"],
+        "CSS": ["css"],
+        "REST API": ["rest api", "restapi", "/api/"],
+        "Statistics": [
+            "statistics",
+            "statistical",
+            "regression",
+            "hypothesis testing",
+            "probability",
+        ],
+        "Testing": [
+            "pytest",
+            "jest",
+            "unittest",
+            "unit test",
+            "integration test",
+            "test suite",
+            "automated test",
+        ],
+    }
+
+    # ---------------------------------------------------------
+    # PUBLIC API
+    # ---------------------------------------------------------
+
     def analyze(
         self,
         repositories: list[dict[str, Any]],
@@ -91,7 +166,7 @@ class CareerAnalyzer:
 
         skills = self._extract_skills(repositories)
 
-        role_scores = {}
+        role_scores: dict[str, int] = {}
 
         for role, config in self.ROLE_REQUIREMENTS.items():
             role_scores[role] = self._calculate_role_score(
@@ -112,30 +187,23 @@ class CareerAnalyzer:
             else None
         )
 
-        current_level = self._determine_level(
-            repositories
-        )
+        github_score = self._github_score(repositories)
 
-        github_score = self._github_score(
-            repositories
-        )
+        portfolio_score = self._portfolio_score(repositories)
 
         readiness_score = self._readiness_score(
             repositories,
             skills,
         )
 
-        portfolio_score = self._portfolio_score(
-            repositories
+        current_level = self._determine_level(
+            repositories,
+            github_score,
+            readiness_score,
         )
 
-        strongest_skills = self._strongest_skills(
-            skills
-        )
-
-        weakest_skills = self._weakest_skills(
-            skills
-        )
+        strongest_skills = self._strongest_skills(skills)
+        weakest_skills = self._weakest_skills(skills)
 
         role_matches = []
 
@@ -147,6 +215,7 @@ class CareerAnalyzer:
                     "evidence": self._role_evidence(
                         role,
                         skills,
+                        repositories,
                     ),
                 }
             )
@@ -167,9 +236,7 @@ class CareerAnalyzer:
 
             "role_matches": role_matches,
 
-            "career_gaps": self._career_gaps(
-                skills
-            ),
+            "career_gaps": self._career_gaps(skills),
 
             "recommended_actions": self._recommended_actions(
                 repositories,
@@ -180,188 +247,254 @@ class CareerAnalyzer:
         }
 
     # ---------------------------------------------------------
-    # SKILL DETECTION
+    # EVIDENCE EXTRACTION
     # ---------------------------------------------------------
 
     def _extract_skills(
         self,
         repositories: list[dict[str, Any]],
     ) -> dict[str, int]:
+        """
+        Build skill scores from repository evidence.
 
-        skill_counter = Counter()
+        Evidence strength:
+
+        100 -> explicit language / tech_stack evidence
+         80 -> structured analyzer evidence
+         50 -> repository metadata evidence
+
+        Repeated evidence across repositories increases confidence.
+        """
+
+        evidence: dict[str, list[int]] = defaultdict(list)
 
         for repo in repositories:
+            analysis = repo.get("analysis") or {}
 
-            language = repo.get("language")
+            # -------------------------------------------------
+            # STRONGEST SOURCE: language
+            # -------------------------------------------------
+
+            language = self._normalise_text(repo.get("language"))
 
             if language:
-                self._add_skill(
-                    skill_counter,
-                    language,
-                )
+                for skill in self._skills_matching_text(language):
+                    evidence[skill].append(100)
 
-            analysis = repo.get(
-                "analysis"
-            ) or {}
+            # -------------------------------------------------
+            # STRONG SOURCE: tech_stack
+            # -------------------------------------------------
 
-            text = str(
-                repo.get("name", "")
-            ) + " " + str(
-                repo.get("description", "")
-            )
+            tech_stack = repo.get("tech_stack") or []
 
-            analysis_text = str(
+            if isinstance(tech_stack, str):
+                tech_stack = [tech_stack]
+
+            if isinstance(tech_stack, list):
+                for technology in tech_stack:
+                    technology_text = self._normalise_text(technology)
+
+                    if not technology_text:
+                        continue
+
+                    for skill in self._skills_matching_text(
+                        technology_text
+                    ):
+                        evidence[skill].append(100)
+
+            # -------------------------------------------------
+            # STRONG SOURCE: structured analysis
+            # -------------------------------------------------
+
+            structured_evidence = self._structured_analysis_text(
                 analysis
             )
 
-            combined = (
-                text + " " + analysis_text
-            ).lower()
+            for skill in self._skills_matching_text(
+                structured_evidence
+            ):
+                evidence[skill].append(80)
 
-            skill_aliases = {
-                "Python": [
-                    "python",
-                ],
-                "JavaScript": [
-                    "javascript",
-                    "js",
-                ],
-                "TypeScript": [
-                    "typescript",
-                    "ts",
-                ],
-                "React": [
-                    "react",
-                ],
-                "Vue": [
-                    "vue",
-                ],
-                "Next.js": [
-                    "next.js",
-                    "nextjs",
-                ],
-                "FastAPI": [
-                    "fastapi",
-                ],
-                "Flask": [
-                    "flask",
-                ],
-                "Django": [
-                    "django",
-                ],
-                "SQL": [
-                    "sql",
-                    "database",
-                ],
-                "PostgreSQL": [
-                    "postgres",
-                    "postgresql",
-                ],
-                "Redis": [
-                    "redis",
-                ],
-                "Celery": [
-                    "celery",
-                ],
-                "Docker": [
-                    "docker",
-                ],
-                "Machine Learning": [
-                    "machine learning",
-                    "machine-learning",
-                    "ml",
-                ],
-                "Pandas": [
-                    "pandas",
-                ],
-                "NumPy": [
-                    "numpy",
-                    "np",
-                ],
-                "Scikit-learn": [
-                    "scikit-learn",
-                    "sklearn",
-                ],
-                "Jupyter": [
-                    "jupyter",
-                    "notebook",
-                    "ipynb",
-                ],
-                "HTML": [
-                    "html",
-                ],
-                "CSS": [
-                    "css",
-                ],
-                "REST API": [
-                    "rest api",
-                    "restapi",
-                    "/api/",
-                ],
-                "Statistics": [
-                    "statistics",
-                    "statistical",
-                    "regression",
-                ],
-                "Testing": [
-                    "testing",
-                    "pytest",
-                    "jest",
-                    "unit test",
-                    "integration test",
-                ],
-            }
+            # -------------------------------------------------
+            # MODERATE SOURCE: repo metadata
+            # -------------------------------------------------
 
-            for skill, aliases in skill_aliases.items():
+            metadata = " ".join(
+                [
+                    self._normalise_text(repo.get("name")),
+                    self._normalise_text(repo.get("description")),
+                ]
+            )
 
-                if any(
-                    alias in combined
-                    for alias in aliases
-                ):
-                    self._add_skill(
-                        skill_counter,
-                        skill,
-                    )
+            for skill in self._skills_matching_text(metadata):
+                evidence[skill].append(50)
 
         return self._normalise_skill_scores(
-            skill_counter,
+            evidence,
             len(repositories),
         )
 
-    def _add_skill(
+    def _skills_matching_text(
         self,
-        counter: Counter,
-        skill: str,
-    ) -> None:
-        counter[skill] += 1
+        text: str,
+    ) -> set[str]:
+
+        if not text:
+            return set()
+
+        text = text.lower()
+
+        matched = set()
+
+        for skill, aliases in self.SKILL_ALIASES.items():
+            for alias in aliases:
+                if self._contains_term(text, alias):
+                    matched.add(skill)
+                    break
+
+        return matched
+
+    @staticmethod
+    def _contains_term(
+        text: str,
+        term: str,
+    ) -> bool:
+
+        term = term.lower().strip()
+
+        if not term:
+            return False
+
+        # For path-like/API terms, substring matching is appropriate.
+        if "/" in term or "-" in term or "." in term:
+            return term in text
+
+        # Normal word boundary matching.
+        import re
+
+        return bool(
+            re.search(
+                rf"\b{re.escape(term)}\b",
+                text,
+            )
+        )
+
+    def _structured_analysis_text(
+        self,
+        analysis: dict[str, Any],
+    ) -> str:
+        """
+        Only inspect useful structured analysis fields.
+
+        We deliberately avoid:
+            str(analysis)
+
+        because that can turn recommendations such as
+        "Consider adding Docker" into false Docker evidence.
+        """
+
+        fields = [
+            "tech_stack",
+            "technologies",
+            "frameworks",
+            "libraries",
+            "tools",
+            "languages",
+            "detected_technologies",
+            "detected_tools",
+            "architecture_summary",
+            "summary",
+        ]
+
+        values: list[str] = []
+
+        for field in fields:
+            value = analysis.get(field)
+
+            if value is None:
+                continue
+
+            if isinstance(value, list):
+                values.extend(
+                    str(item)
+                    for item in value
+                )
+            elif isinstance(value, dict):
+                values.extend(
+                    str(key)
+                    for key in value.keys()
+                )
+                values.extend(
+                    str(item)
+                    for item in value.values()
+                    if isinstance(item, (str, int, float))
+                )
+            elif isinstance(value, (str, int, float)):
+                values.append(str(value))
+
+        return " ".join(values)
 
     def _normalise_skill_scores(
         self,
-        counter: Counter,
+        evidence: dict[str, list[int]],
         repository_count: int,
     ) -> dict[str, int]:
 
-        if not counter:
+        if not evidence:
             return {}
 
-        scores = {}
+        scores: dict[str, int] = {}
 
-        for skill, count in counter.items():
+        for skill, values in evidence.items():
+            if not values:
+                continue
 
-            # Multiple repositories demonstrate
-            # stronger recurring evidence.
-            score = min(
-                100,
-                35 + (
-                    count / max(
-                        repository_count,
-                        1,
-                    )
-                ) * 65,
+            # Keep only the strongest piece of evidence from each
+            # repository/source rather than blindly stacking mentions.
+            strongest = max(values)
+
+            # Strong evidence establishes the baseline.
+            if strongest >= 100:
+                base = 70
+            elif strongest >= 80:
+                base = 55
+            else:
+                base = 35
+
+            # Diminishing returns:
+            # 1 occurrence  -> +0
+            # 2 occurrences -> +8
+            # 3 occurrences -> +14
+            # 4 occurrences -> +19
+            # 5+ occurrences -> capped at +24
+            occurrence_count = len(values)
+
+            recurrence_bonus = min(
+                24,
+                round(
+                    10 * (
+                        1 - (
+                            1 / (
+                                occurrence_count + 0.5
+                            )
+                        )
+                    ) * 3
+                ),
             )
 
-            scores[skill] = round(
-                score
+            score = base + recurrence_bonus
+
+            # Broad repository coverage gives a small additional
+            # confidence bonus.
+            if repository_count >= 5 and occurrence_count >= 3:
+                score += 3
+
+            if repository_count >= 10 and occurrence_count >= 5:
+                score += 3
+
+            scores[skill] = min(
+                95,
+                round(score),
             )
 
         return dict(
@@ -382,9 +515,7 @@ class CareerAnalyzer:
         requirements: dict[str, float],
     ) -> int:
 
-        total_weight = sum(
-            requirements.values()
-        )
+        total_weight = sum(requirements.values())
 
         if total_weight == 0:
             return 0
@@ -392,11 +523,7 @@ class CareerAnalyzer:
         achieved = 0.0
 
         for skill, weight in requirements.items():
-
-            skill_score = skills.get(
-                skill,
-                0,
-            )
+            skill_score = skills.get(skill, 0)
 
             achieved += (
                 (skill_score / 100)
@@ -404,8 +531,7 @@ class CareerAnalyzer:
             )
 
         score = (
-            achieved
-            / total_weight
+            achieved / total_weight
         ) * 100
 
         return round(
@@ -416,6 +542,7 @@ class CareerAnalyzer:
         self,
         role: str,
         skills: dict[str, int],
+        repositories: list[dict[str, Any]],
     ) -> list[str]:
 
         requirements = (
@@ -425,21 +552,21 @@ class CareerAnalyzer:
         evidence = []
 
         for skill in requirements:
+            score = skills.get(skill, 0)
 
-            score = skills.get(
-                skill,
-                0,
-            )
-
-            if score >= 60:
+            if score >= 80:
                 evidence.append(
-                    f"{skill} evidence detected"
+                    f"Strong {skill} evidence"
+                )
+            elif score >= 60:
+                evidence.append(
+                    f"Demonstrated {skill} experience"
                 )
 
         return evidence[:6]
 
     # ---------------------------------------------------------
-    # OVERALL SCORES
+    # GITHUB SCORE
     # ---------------------------------------------------------
 
     def _github_score(
@@ -447,23 +574,45 @@ class CareerAnalyzer:
         repositories: list[dict[str, Any]],
     ) -> int:
 
-        scores = [
-            float(
-                repo.get(
-                    "quality_score",
-                    0,
-                )
-                or 0
-            )
-            for repo in repositories
-        ]
-
-        if not scores:
+        if not repositories:
             return 0
 
-        return round(
-            sum(scores) / len(scores)
+        quality_scores = []
+
+        for repo in repositories:
+            quality = float(
+                repo.get("quality_score", 0)
+                or 0
+            )
+
+            quality_scores.append(
+                max(0, min(100, quality))
+            )
+
+        if not quality_scores:
+            return 0
+
+        average_quality = (
+            sum(quality_scores)
+            / len(quality_scores)
         )
+
+        # Breadth is useful, but deliberately capped.
+        breadth_bonus = min(
+            10,
+            len(repositories) * 2,
+        )
+
+        return round(
+            min(
+                100,
+                average_quality + breadth_bonus,
+            )
+        )
+
+    # ---------------------------------------------------------
+    # PORTFOLIO SCORE
+    # ---------------------------------------------------------
 
     def _portfolio_score(
         self,
@@ -476,10 +625,7 @@ class CareerAnalyzer:
         scores = sorted(
             [
                 float(
-                    repo.get(
-                        "quality_score",
-                        0,
-                    )
+                    repo.get("quality_score", 0)
                     or 0
                 )
                 for repo in repositories
@@ -487,11 +633,11 @@ class CareerAnalyzer:
             reverse=True,
         )
 
-        # Strong repositories contribute more
-        # than unfinished / empty repositories.
+        # Strong projects contribute more than unfinished ones.
         weights = []
 
         for index, score in enumerate(scores):
+
             if index == 0:
                 weight = 3.0
             elif index < 4:
@@ -513,9 +659,16 @@ class CareerAnalyzer:
             for _, weight in weights
         )
 
+        if denominator == 0:
+            return 0
+
         return round(
             numerator / denominator
         )
+
+    # ---------------------------------------------------------
+    # READINESS
+    # ---------------------------------------------------------
 
     def _readiness_score(
         self,
@@ -530,35 +683,52 @@ class CareerAnalyzer:
             repositories
         )
 
-        engineering_evidence = 0
-
-        for skill in [
+        # Engineering capabilities.
+        engineering_skills = [
             "Python",
             "SQL",
-            "FastAPI",
+            "REST API",
             "Docker",
             "Testing",
-            "REST API",
             "PostgreSQL",
             "Redis",
-        ]:
-            if skills.get(skill, 0) >= 60:
-                engineering_evidence += 1
+            "AWS",
+        ]
 
-        evidence_score = min(
-            100,
-            engineering_evidence * 12,
+        engineering_values = [
+            skills.get(skill, 0)
+            for skill in engineering_skills
+        ]
+
+        engineering_score = (
+            sum(engineering_values)
+            / len(engineering_values)
         )
 
-        project_score = min(
-            100,
-            len(repositories) * 7,
+        # Project quality.
+        portfolio_score = self._portfolio_score(
+            repositories
+        )
+
+        # Testing / DevOps / production evidence.
+        production_skills = [
+            skills.get("Testing", 0),
+            skills.get("Docker", 0),
+            skills.get("PostgreSQL", 0),
+            skills.get("AWS", 0),
+            skills.get("Redis", 0),
+        ]
+
+        production_score = (
+            sum(production_skills)
+            / len(production_skills)
         )
 
         readiness = (
-            github_score * 0.50
-            + evidence_score * 0.30
-            + project_score * 0.20
+            github_score * 0.35
+            + portfolio_score * 0.30
+            + engineering_score * 0.20
+            + production_score * 0.15
         )
 
         return round(
@@ -572,40 +742,36 @@ class CareerAnalyzer:
     def _determine_level(
         self,
         repositories: list[dict[str, Any]],
+        github_score: int,
+        readiness_score: int,
     ) -> str:
-
-        github_score = self._github_score(
-            repositories
-        )
 
         strong_projects = sum(
             1
             for repo in repositories
             if float(
-                repo.get(
-                    "quality_score",
-                    0,
-                )
+                repo.get("quality_score", 0)
                 or 0
             ) >= 70
         )
 
         if (
-            github_score >= 80
+            github_score >= 82
+            and readiness_score >= 80
             and strong_projects >= 3
         ):
             return "Advanced"
 
         if (
             github_score >= 60
-            or strong_projects >= 2
-        ):
+            and readiness_score >= 55
+        ) or strong_projects >= 2:
             return "Intermediate"
 
         return "Developing"
 
     # ---------------------------------------------------------
-    # STRENGTHS / GAPS
+    # STRENGTHS
     # ---------------------------------------------------------
 
     def _strongest_skills(
@@ -618,6 +784,10 @@ class CareerAnalyzer:
             for skill, score in skills.items()
             if score >= 65
         ][:6]
+
+    # ---------------------------------------------------------
+    # WEAKNESSES
+    # ---------------------------------------------------------
 
     def _weakest_skills(
         self,
@@ -640,6 +810,10 @@ class CareerAnalyzer:
         ]
 
         return missing[:6]
+
+    # ---------------------------------------------------------
+    # CAREER GAPS
+    # ---------------------------------------------------------
 
     def _career_gaps(
         self,
@@ -665,7 +839,6 @@ class CareerAnalyzer:
             )
 
             if current < target:
-
                 gaps.append(
                     {
                         "skill": skill,
@@ -675,10 +848,14 @@ class CareerAnalyzer:
                     }
                 )
 
-        return gaps
+        return sorted(
+            gaps,
+            key=lambda item: item["gap"],
+            reverse=True,
+        )
 
     # ---------------------------------------------------------
-    # ACTIONS
+    # RECOMMENDATIONS
     # ---------------------------------------------------------
 
     def _recommended_actions(
@@ -689,11 +866,12 @@ class CareerAnalyzer:
 
         actions = []
 
+        # Testing
         testing_count = sum(
             1
             for repo in repositories
             if (
-                repo.get("analysis", {})
+                (repo.get("analysis") or {})
                 .get("testing", {})
                 .get("score", 0)
                 >= 70
@@ -705,53 +883,77 @@ class CareerAnalyzer:
                 "Add automated tests with Pytest or Jest to at least one flagship project."
             )
 
-        docker_count = sum(
-            1
-            for repo in repositories
-            if skills.get("Docker", 0) > 0
-        )
-
-        if docker_count == 0:
+        # Docker
+        if skills.get("Docker", 0) < 60:
             actions.append(
                 "Containerize a production-style project with Docker and Docker Compose."
             )
 
+        # PostgreSQL
         if skills.get("PostgreSQL", 0) < 60:
             actions.append(
                 "Showcase PostgreSQL database design in a backend project."
             )
 
+        # Redis
         if skills.get("Redis", 0) < 60:
             actions.append(
                 "Add Redis caching or background-job processing to a suitable backend project."
             )
 
+        # AWS
         if skills.get("AWS", 0) < 60:
             actions.append(
                 "Deploy one production project to a cloud platform and document the deployment."
             )
 
-        if len(repositories) < 5:
+        # Portfolio breadth
+        if len(repositories) < 3:
             actions.append(
                 "Build and maintain a small set of polished flagship repositories."
             )
 
         return actions[:6]
 
-    def _empty_profile(self) -> dict[str, Any]:
+    # ---------------------------------------------------------
+    # EMPTY PROFILE
+    # ---------------------------------------------------------
+
+    def _empty_profile(
+        self,
+    ) -> dict[str, Any]:
 
         return {
             "primary_role": None,
             "secondary_role": None,
             "current_level": "Developing",
+
             "portfolio_score": 0,
             "github_score": 0,
             "readiness_score": 0,
+
             "skill_scores": {},
+
             "strongest_skills": [],
             "weakest_skills": [],
+
             "role_matches": [],
             "career_gaps": [],
             "recommended_actions": [],
+
             "repository_count": 0,
         }
+
+    # ---------------------------------------------------------
+    # HELPERS
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _normalise_text(
+        value: Any,
+    ) -> str:
+
+        if value is None:
+            return ""
+
+        return str(value).strip().lower()
