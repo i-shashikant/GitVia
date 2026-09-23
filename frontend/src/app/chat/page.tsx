@@ -16,7 +16,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([
     {
       role: "assistant",
-      content: "Hello Shashikant! I'm your GitVia AI Career Assistant. I've analyzed your 14 repositories, Portfolio Score (81/100), and skill gaps. What would you like to discuss about your career readiness or codebase?"
+      content:
+  "Hey! I'm your GitVia AI Career Assistant. I can reason over your GitHub repositories, developer profile, career gaps, roadmap, and target roles. What would you like to work on?"
     }
   ]);
   const [input, setInput] = useState("");

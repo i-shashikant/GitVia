@@ -2,101 +2,563 @@ from typing import Any
 
 
 class RoadmapGenerator:
+    """
+    Generates a deterministic, personalized roadmap from the user's
+    actual GitHub-derived developer profile and target role.
+
+    The roadmap is intentionally rule-based:
+    - no fake scores
+    - no fixed technology path
+    - recommendations are driven by detected strengths/gaps
+    """
+
+    ROLE_SKILLS = {
+        "Backend Engineer": [
+            "Python",
+            "FastAPI",
+            "Flask",
+            "SQL",
+            "PostgreSQL",
+            "REST API",
+            "Docker",
+            "Testing",
+            "Redis",
+            "CI/CD",
+            "System Design",
+        ],
+        "Python Backend Developer": [
+            "Python",
+            "FastAPI",
+            "Flask",
+            "SQL",
+            "PostgreSQL",
+            "REST API",
+            "Docker",
+            "Testing",
+            "Redis",
+            "CI/CD",
+            "System Design",
+        ],
+        "Frontend Developer": [
+            "JavaScript",
+            "TypeScript",
+            "React",
+            "Next.js",
+            "HTML",
+            "CSS",
+            "Testing",
+            "Performance",
+            "Accessibility",
+            "Deployment",
+        ],
+        "Full Stack Developer": [
+            "JavaScript",
+            "TypeScript",
+            "React",
+            "Next.js",
+            "Python",
+            "SQL",
+            "REST API",
+            "Docker",
+            "Testing",
+            "Deployment",
+        ],
+        "AI / ML Engineer": [
+            "Python",
+            "Machine Learning",
+            "Pandas",
+            "NumPy",
+            "Scikit-learn",
+            "FastAPI",
+            "SQL",
+            "Docker",
+            "Testing",
+            "Deployment",
+        ],
+        "Data Scientist": [
+            "Python",
+            "Pandas",
+            "NumPy",
+            "Scikit-learn",
+            "Jupyter",
+            "SQL",
+            "Statistics",
+            "Machine Learning",
+            "Testing",
+            "Deployment",
+        ],
+    }
+
     def generate_roadmap(
         self,
         dev_profile: dict[str, Any],
         user_repos: list[dict[str, Any]],
-        target_role: str = "Python Backend Engineer"
+        target_role: str = "Backend Engineer",
     ) -> dict[str, Any]:
-        """
-        Generates a personalized, week-by-week actionable roadmap anchored directly to the user's existing projects.
-        """
-        repo_name = user_repos[0].get("name", "gitvia-career-copilot") if user_repos else "existing backend project"
 
-        weekly_plan = [
-            {
-                "week": 1,
-                "title": "Docker Containerization Fundamentals",
-                "focus": "DevOps & Infrastructure",
-                "status": "In Progress",
-                "deliverable": f"Write a multi-stage Dockerfile for '{repo_name}' and test local container execution.",
-                "guidance": f"💡 Recommendation: Don't build another Todo app. Write a production Dockerfile for your existing repository '{repo_name}' to containerize your FastAPI/Python service.",
-                "tasks": [
-                    f"Create `Dockerfile` in `{repo_name}` root with Python 3.11-slim base image.",
-                    "Optimize layer caching for `requirements.txt` dependencies.",
-                    "Run container locally with environment variable bindings (`docker run -p 8000:8000`)."
-                ]
-            },
-            {
-                "week": 2,
-                "title": "Docker Compose & Local Multi-Container Services",
-                "focus": "Database & Orchestration",
-                "status": "Upcoming",
-                "deliverable": f"Add `docker-compose.yml` orchestrating `{repo_name}` alongside PostgreSQL and Redis.",
-                "guidance": f"💡 Action: Wire up your database and background worker containers in `{repo_name}` so your whole stack boots with a single `docker compose up` command.",
-                "tasks": [
-                    "Define `postgres:17` container service with persistent volumes.",
-                    "Define `redis:7-alpine` cache service.",
-                    "Configure healthchecks and service dependency order (`depends_on`)."
-                ]
-            },
-            {
-                "week": 3,
-                "title": "Automated CI/CD with GitHub Actions",
-                "focus": "Automation & Quality Assurance",
-                "status": "Upcoming",
-                "deliverable": f"Set up `.github/workflows/ci.yml` in `{repo_name}` to automatically run Pytest and lint checks on every PR.",
-                "guidance": "💡 Action: Ensure every future pull request is automatically tested before merge.",
-                "tasks": [
-                    "Create workflow triggering on `push` and `pull_request` to `main` branch.",
-                    "Add step to install dependencies and run `pytest` test suite.",
-                    "Add Docker image build verification step."
-                ]
-            },
-            {
-                "week": 4,
-                "title": "Cloud Deployment (AWS / Render / Railway)",
-                "focus": "Cloud Architecture",
-                "status": "Upcoming",
-                "deliverable": f"Deploy `{repo_name}` to AWS ECS/AppRunner or Render and attach live URL to README.",
-                "guidance": "💡 Action: Turn your GitHub code into a live production service accessible to hiring managers.",
-                "tasks": [
-                    "Provision cloud PostgreSQL instance.",
-                    "Configure production environment secrets.",
-                    "Deploy container image and update repository README with live API badge."
-                ]
-            },
-            {
-                "week": 5,
-                "title": "Asynchronous Background Jobs & Caching with Redis",
-                "focus": "Scalability & Performance",
-                "status": "Upcoming",
-                "deliverable": f"Integrate Redis & Celery into `{repo_name}` to offload heavy analysis jobs.",
-                "guidance": "💡 Action: Upgrade HTTP response latency by moving long-running tasks into asynchronous queues.",
-                "tasks": [
-                    "Configure Celery app worker instance.",
-                    "Cache frequent GET API responses in Redis with 10-minute TTL.",
-                    "Measure and document API response speedup in README benchmark section."
-                ]
-            },
-            {
-                "week": 6,
-                "title": "System Architecture & High-Availability Design",
-                "focus": "System Design",
-                "status": "Upcoming",
-                "deliverable": "Create a C4 System Architecture diagram and prepare for senior technical interviews.",
-                "guidance": "💡 Action: Document your data flows and component boundaries to ace system design interviews.",
-                "tasks": [
-                    "Draw Mermaid.js sequence and component diagrams for GitVia architecture.",
-                    "Document database indexing strategy and query execution plans.",
-                    "Complete mock interview practice for system design trade-offs."
-                ]
-            }
-        ]
+        strongest = dev_profile.get("strongest_skills", [])
+        weakest = dev_profile.get("weakest_skills", [])
+        skill_scores = dev_profile.get("skill_scores", {})
+
+        role_key = self._resolve_role(target_role)
+        role_skills = self.ROLE_SKILLS.get(
+            role_key,
+            self.ROLE_SKILLS["Backend Engineer"],
+        )
+
+        gaps = self._identify_gaps(
+            role_skills,
+            strongest,
+            weakest,
+            skill_scores,
+        )
+
+        roadmap_topics = self._prioritize_topics(
+            gaps,
+            role_skills,
+            weakest,
+        )
+
+        repo_name = (
+            user_repos[0].get("name", "your existing project")
+            if user_repos
+            else "your existing project"
+        )
+
+        weekly_plan = []
+
+        for index, topic in enumerate(roadmap_topics[:6], start=1):
+            weekly_plan.append(
+                self._build_week(
+                    week_number=index,
+                    topic=topic,
+                    repo_name=repo_name,
+                    target_role=target_role,
+                )
+            )
 
         return {
             "target_role": target_role,
-            "duration_weeks": 6,
-            "headline": f"Personalized 6-Week Action Plan for {target_role}",
-            "weekly_plan": weekly_plan
+            "duration_weeks": len(weekly_plan),
+            "headline": (
+                f"Personalized {len(weekly_plan)}-Week Action Plan "
+                f"for {target_role}"
+            ),
+            "strong_skills": strongest,
+            "improving_skills": weakest[:3],
+            "missing_skills": gaps[:5],
+            "weekly_plan": weekly_plan,
         }
+
+    # ---------------------------------------------------------
+    # ROLE RESOLUTION
+    # ---------------------------------------------------------
+
+    def _resolve_role(self, target_role: str) -> str:
+        normalized = target_role.strip().lower()
+
+        aliases = {
+            "backend": "Backend Engineer",
+            "backend developer": "Backend Engineer",
+            "python backend": "Python Backend Developer",
+            "python backend engineer": "Python Backend Developer",
+            "frontend": "Frontend Developer",
+            "frontend developer": "Frontend Developer",
+            "full stack": "Full Stack Developer",
+            "fullstack": "Full Stack Developer",
+            "ai engineer": "AI / ML Engineer",
+            "ml engineer": "AI / ML Engineer",
+            "machine learning engineer": "AI / ML Engineer",
+            "data scientist": "Data Scientist",
+        }
+
+        return aliases.get(normalized, target_role)
+
+    # ---------------------------------------------------------
+    # GAP DETECTION
+    # ---------------------------------------------------------
+
+    def _identify_gaps(
+        self,
+        role_skills: list[str],
+        strongest: list[str],
+        weakest: list[str],
+        skill_scores: dict[str, Any],
+    ) -> list[str]:
+
+        strongest_text = " ".join(
+            str(skill).lower() for skill in strongest
+        )
+
+        weakest_text = " ".join(
+            str(skill).lower() for skill in weakest
+        )
+
+        gaps = []
+
+        for skill in role_skills:
+            score = skill_scores.get(skill)
+
+            # Explicitly weak skill.
+            if self._contains_skill(weakest_text, skill):
+                gaps.append(skill)
+                continue
+
+            # Known score below a reasonable evidence threshold.
+            if isinstance(score, (int, float)) and score < 65:
+                gaps.append(skill)
+                continue
+
+            # No evidence of the skill.
+            if score is None and not self._contains_skill(
+                strongest_text,
+                skill,
+            ):
+                gaps.append(skill)
+
+        return self._deduplicate(gaps)
+
+    # ---------------------------------------------------------
+    # PRIORITIZATION
+    # ---------------------------------------------------------
+
+    def _prioritize_topics(
+        self,
+        gaps: list[str],
+        role_skills: list[str],
+        weakest: list[str],
+    ) -> list[str]:
+
+        topics = []
+
+        # Start with explicit gaps.
+        for gap in gaps:
+            if gap not in topics:
+                topics.append(gap)
+
+        # Add role-specific fundamentals if necessary.
+        for skill in role_skills:
+            if skill not in topics and len(topics) < 6:
+                topics.append(skill)
+
+        # Always finish with production/system-level evidence.
+        if len(topics) < 6:
+            for fallback in [
+                "Testing",
+                "Deployment",
+                "System Design",
+            ]:
+                if fallback not in topics:
+                    topics.append(fallback)
+
+        return topics[:6]
+
+    # ---------------------------------------------------------
+    # WEEK GENERATION
+    # ---------------------------------------------------------
+
+    def _build_week(
+        self,
+        week_number: int,
+        topic: str,
+        repo_name: str,
+        target_role: str,
+    ) -> dict[str, Any]:
+
+        plans = {
+            "Docker": {
+                "focus": "DevOps & Infrastructure",
+                "title": "Production Containerization",
+                "deliverable": (
+                    f"Containerize {repo_name} with a production-ready "
+                    "Docker setup."
+                ),
+                "guidance": (
+                    "Use your existing project as evidence instead of "
+                    "building another tutorial project."
+                ),
+                "tasks": [
+                    "Create a production Dockerfile.",
+                    "Optimize dependency installation and image layers.",
+                    "Run the application locally inside the container.",
+                ],
+            },
+            "Testing": {
+                "focus": "Quality Assurance",
+                "title": "Automated Testing",
+                "deliverable": (
+                    f"Build a meaningful automated test suite for "
+                    f"{repo_name}."
+                ),
+                "guidance": (
+                    "Prioritize API behavior, business logic, and "
+                    "important failure cases."
+                ),
+                "tasks": [
+                    "Add unit tests for core business logic.",
+                    "Add API/integration tests for critical endpoints.",
+                    "Run the test suite automatically before every push.",
+                ],
+            },
+            "PostgreSQL": {
+                "focus": "Database Engineering",
+                "title": "PostgreSQL & Database Design",
+                "deliverable": (
+                    f"Move {repo_name} toward production-grade PostgreSQL "
+                    "usage."
+                ),
+                "guidance": (
+                    "Focus on schema design, indexes, transactions, and "
+                    "real query behavior."
+                ),
+                "tasks": [
+                    "Design normalized production database tables.",
+                    "Add indexes for frequently queried fields.",
+                    "Inspect and optimize important database queries.",
+                ],
+            },
+            "SQL": {
+                "focus": "Database Engineering",
+                "title": "Advanced SQL",
+                "deliverable": (
+                    "Strengthen SQL skills through real application queries."
+                ),
+                "guidance": (
+                    "Use your existing application's data model rather "
+                    "than isolated SQL exercises."
+                ),
+                "tasks": [
+                    "Write joins and aggregation queries.",
+                    "Analyze query execution plans.",
+                    "Add indexes and compare query performance.",
+                ],
+            },
+            "FastAPI": {
+                "focus": "Backend Engineering",
+                "title": "FastAPI Production Patterns",
+                "deliverable": (
+                    f"Build production-quality FastAPI features inside "
+                    f"{repo_name}."
+                ),
+                "guidance": (
+                    "Focus on validation, dependency injection, errors, "
+                    "and clean API boundaries."
+                ),
+                "tasks": [
+                    "Add Pydantic request and response models.",
+                    "Implement dependency-based authentication/authorization.",
+                    "Document and test the API endpoints.",
+                ],
+            },
+            "Flask": {
+                "focus": "Backend Engineering",
+                "title": "Flask Production Architecture",
+                "deliverable": (
+                    f"Strengthen the Flask architecture of {repo_name}."
+                ),
+                "guidance": (
+                    "Improve modularity, configuration, error handling, "
+                    "and API structure."
+                ),
+                "tasks": [
+                    "Separate routes, services, and data access.",
+                    "Add centralized error handling.",
+                    "Add automated API tests.",
+                ],
+            },
+            "Redis": {
+                "focus": "Scalability & Performance",
+                "title": "Redis & Caching",
+                "deliverable": (
+                    f"Introduce useful caching or background processing "
+                    f"patterns into {repo_name}."
+                ),
+                "guidance": (
+                    "Only cache data where repeated access justifies the "
+                    "complexity."
+                ),
+                "tasks": [
+                    "Identify an endpoint suitable for caching.",
+                    "Implement Redis caching with an expiration policy.",
+                    "Measure the response-time difference.",
+                ],
+            },
+            "CI/CD": {
+                "focus": "Automation",
+                "title": "GitHub Actions CI",
+                "deliverable": (
+                    f"Create a CI pipeline for {repo_name}."
+                ),
+                "guidance": (
+                    "Every pull request should automatically verify "
+                    "the project."
+                ),
+                "tasks": [
+                    "Create a GitHub Actions workflow.",
+                    "Install dependencies and run tests.",
+                    "Add lint/build/container verification.",
+                ],
+            },
+            "Deployment": {
+                "focus": "Cloud & Production",
+                "title": "Production Deployment",
+                "deliverable": (
+                    f"Deploy {repo_name} and document the live system."
+                ),
+                "guidance": (
+                    "The deployment should be reproducible and documented "
+                    "for someone reviewing your GitHub profile."
+                ),
+                "tasks": [
+                    "Configure production environment variables.",
+                    "Deploy the application to a cloud platform.",
+                    "Document the live URL and deployment process.",
+                ],
+            },
+            "System Design": {
+                "focus": "System Architecture",
+                "title": "System Design & Architecture",
+                "deliverable": (
+                    f"Document the architecture and data flow of "
+                    f"{repo_name}."
+                ),
+                "guidance": (
+                    "Turn your existing project into evidence that you "
+                    "understand architectural trade-offs."
+                ),
+                "tasks": [
+                    "Create a system architecture diagram.",
+                    "Document database, API, cache, and service boundaries.",
+                    "Explain scalability and failure-handling trade-offs.",
+                ],
+            },
+            "JavaScript": {
+                "focus": "Frontend Engineering",
+                "title": "Modern JavaScript",
+                "deliverable": "Build production-quality frontend features.",
+                "guidance": "Focus on maintainable application code.",
+                "tasks": [
+                    "Refactor one complex component into reusable logic.",
+                    "Use modern async and state-management patterns.",
+                    "Add tests for important user interactions.",
+                ],
+            },
+            "TypeScript": {
+                "focus": "Frontend Engineering",
+                "title": "TypeScript",
+                "deliverable": "Strengthen type safety across the frontend.",
+                "guidance": "Replace implicit any and weak contracts with useful types.",
+                "tasks": [
+                    "Define API response interfaces.",
+                    "Type component props and application state.",
+                    "Remove avoidable any usage.",
+                ],
+            },
+            "React": {
+                "focus": "Frontend Engineering",
+                "title": "React Application Architecture",
+                "deliverable": "Improve React component architecture in an existing project.",
+                "guidance": "Focus on reusable components and predictable state.",
+                "tasks": [
+                    "Extract reusable UI components.",
+                    "Improve state and data-fetching boundaries.",
+                    "Add loading and error states.",
+                ],
+            },
+            "Next.js": {
+                "focus": "Frontend Engineering",
+                "title": "Next.js Production Patterns",
+                "deliverable": "Build a production-ready Next.js feature.",
+                "guidance": "Use routing, server/client boundaries, and performance patterns deliberately.",
+                "tasks": [
+                    "Improve route-level data fetching.",
+                    "Add robust loading and error boundaries.",
+                    "Optimize one page for production performance.",
+                ],
+            },
+            "Python": {
+                "focus": "Programming Fundamentals",
+                "title": "Production Python",
+                "deliverable": f"Refactor meaningful Python code in {repo_name}.",
+                "guidance": "Focus on readability, modularity, typing, and maintainability.",
+                "tasks": [
+                    "Add type hints to important functions.",
+                    "Refactor duplicated logic into reusable functions.",
+                    "Add tests around the refactored code.",
+                ],
+            },
+            "Machine Learning": {
+                "focus": "Machine Learning Engineering",
+                "title": "Production ML",
+                "deliverable": "Turn an existing ML project into a reproducible pipeline.",
+                "guidance": "Prioritize reproducibility and measurable evaluation.",
+                "tasks": [
+                    "Create a reproducible training pipeline.",
+                    "Track evaluation metrics and validation methodology.",
+                    "Expose the model through a documented interface.",
+                ],
+            },
+        }
+
+        plan = plans.get(
+            topic,
+            {
+                "focus": f"{target_role} Skill Development",
+                "title": f"{topic} Development",
+                "deliverable": (
+                    f"Build practical {topic} evidence using "
+                    f"{repo_name}."
+                ),
+                "guidance": (
+                    f"Strengthen {topic} through a concrete feature "
+                    "in an existing project."
+                ),
+                "tasks": [
+                    f"Study the core production concepts of {topic}.",
+                    f"Implement {topic} in an existing project.",
+                    f"Document the {topic} implementation in the README.",
+                ],
+            },
+        )
+
+        return {
+            "week": week_number,
+            "title": plan["title"],
+            "focus": plan["focus"],
+            "status": (
+                "In Progress"
+                if week_number == 1
+                else "Upcoming"
+            ),
+            "deliverable": plan["deliverable"],
+            "guidance": plan["guidance"],
+            "tasks": [
+                {
+                    "title": task,
+                    "description": plan["guidance"],
+                    "skills": [topic],
+                    "estimated_hours": 4,
+                }
+                for task in plan["tasks"]
+            ],
+        }
+
+    # ---------------------------------------------------------
+    # HELPERS
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def _contains_skill(text: str, skill: str) -> bool:
+        return skill.lower() in text.lower()
+
+    @staticmethod
+    def _deduplicate(items: list[str]) -> list[str]:
+        seen = set()
+        result = []
+
+        for item in items:
+            if item not in seen:
+                seen.add(item)
+                result.append(item)
+
+        return result

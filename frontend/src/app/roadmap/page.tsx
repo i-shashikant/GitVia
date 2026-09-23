@@ -42,12 +42,16 @@ type RoadmapWeek = {
   theme?: string;
   focus?: string;
   description?: string;
+  deliverable?: string;
+  guidance?: string;
+  status?: string;
   tasks?: RoadmapTask[];
 };
 
 type RoadmapData = {
   target_role?: string;
   duration_weeks?: number;
+  weekly_plan?: RoadmapWeek[];
   weekly_tasks?: RoadmapWeek[];
   weeks?: RoadmapWeek[];
   strong_skills?: string[];
@@ -83,7 +87,16 @@ function normalizeWeek(week: RoadmapWeek, index: number): RoadmapWeek {
       week.description ||
       week.focus ||
       "Build practical evidence for your target role.",
-    tasks: rawTasks.map(normalizeTask),
+    tasks: rawTasks.map((task: any) => {
+      if (typeof task === "string") {
+        return normalizeTask({
+          title: task,
+          description: week.deliverable || week.guidance,
+        });
+      }
+
+      return normalizeTask(task);
+    }),
   };
 }
 
@@ -106,6 +119,7 @@ export default function RoadmapPage() {
       setRoadmap(data);
 
       const weeks =
+        data?.weekly_plan ||
         data?.weekly_tasks ||
         data?.weeks ||
         [];
@@ -130,7 +144,11 @@ export default function RoadmapPage() {
   const weeks = useMemo(() => {
     if (!roadmap) return [];
 
-    const rawWeeks = roadmap.weekly_tasks || roadmap.weeks || [];
+    const rawWeeks =
+      roadmap.weekly_plan ||
+      roadmap.weekly_tasks ||
+      roadmap.weeks ||
+      [];
 
     return rawWeeks.map(normalizeWeek);
   }, [roadmap]);
