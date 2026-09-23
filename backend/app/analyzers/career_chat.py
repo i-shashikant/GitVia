@@ -2,66 +2,351 @@ from typing import Any
 
 
 class CareerChatAssistant:
-    def generate_response(self, user_query: str, dev_profile: dict[str, Any], repos: list[dict[str, Any]]) -> str:
-        """
-        Generates context-aware responses grounded in the user's actual GitHub repositories, profile, and skill gaps.
-        """
-        query_lower = user_query.lower()
-        portfolio_score = dev_profile.get("portfolio_score", 81)
-        strongest = dev_profile.get("strongest_skills", ["Python", "FastAPI", "SQL"])
-        weakest = dev_profile.get("weakest_skills", ["DevOps", "Testing"])
-        repo_names = [r.get("name") for r in repos if r.get("name")]
 
-        if "ready" in query_lower or "internship" in query_lower or "job" in query_lower:
-            return (
-                f"Based on your **{portfolio_score}/100 Portfolio Score**, you are currently **76% ready for Backend Developer Internships**. "
-                f"Your core backend foundation in **{', '.join(strongest)}** is solid! "
-                f"However, to move into the top 5% of applicants, you need empirical evidence of **{', '.join(weakest)}**. "
-                f"Specifically, containerizing your repository **'{repo_names[0] if repo_names else 'gitvia-career-copilot'}'** with Docker and adding GitHub Actions CI/CD will boost your internship readiness to over 88%."
+    def generate_response(
+        self,
+        user_query: str,
+        dev_profile: dict[str, Any],
+        repos: list[dict[str, Any]],
+        analyses: list[dict[str, Any]] | None = None,
+    ) -> str:
+
+        analyses = analyses or []
+
+        query = user_query.lower().strip()
+
+        strongest = dev_profile.get(
+            "strongest_skills",
+            [],
+        )
+
+        weakest = dev_profile.get(
+            "weakest_skills",
+            [],
+        )
+
+        portfolio_score = dev_profile.get(
+            "portfolio_score",
+            0,
+        )
+
+        github_score = dev_profile.get(
+            "github_score",
+            0,
+        )
+
+        readiness_score = dev_profile.get(
+            "readiness_score",
+            0,
+        )
+
+        primary_role = dev_profile.get(
+            "primary_role",
+            "Developer",
+        )
+
+        repo_names = [
+            repo.get("name")
+            for repo in repos
+            if repo.get("name")
+        ]
+
+        # ---------------------------------------------------------
+        # READY / INTERNSHIP
+        # ---------------------------------------------------------
+
+        if (
+            "ready" in query
+            or "internship" in query
+            or "job" in query
+        ):
+            return self._readiness_response(
+                primary_role,
+                readiness_score,
+                strongest,
+                weakest,
+                repo_names,
             )
 
-        elif "resume" in query_lower or "project" in query_lower or "portfolio" in query_lower:
-            top_repo = repo_names[0] if repo_names else "gitvia-career-copilot"
-            second_repo = repo_names[1] if len(repo_names) > 1 else "distributed-task-engine"
-            return (
-                f"You should feature your two strongest repositories on your resume:\n\n"
-                f"1. **{top_repo}**: Highlights your full-stack architecture, FastAPI backend, and SQL database design.\n"
-                f"2. **{second_repo}**: Highlights your asynchronous task handling, background queueing, and Python engineering.\n\n"
-                f"💡 **Tip**: When writing resume bullets, highlight achievements like *'Architected REST API with PostgreSQL and Celery background queues'* rather than just stating *'Made a Python app'*."
+        # ---------------------------------------------------------
+        # RESUME / PROJECTS
+        # ---------------------------------------------------------
+
+        if (
+            "resume" in query
+            or "project" in query
+            or "portfolio" in query
+        ):
+            return self._project_response(
+                repo_names,
+                analyses,
             )
 
-        elif "kubernetes" in query_lower or "k8s" in query_lower:
-            return (
-                f"For your current **Intermediate** level and target **Backend / Full Stack** roles, **do NOT jump straight into Kubernetes yet**.\n\n"
-                f"Right now, your biggest skill gap is basic **Docker containerization and AWS deployment** (currently at 42/100). "
-                f"Mastering Docker + Compose for **'{repo_names[0] if repo_names else 'your project'}'** and deploying it to AWS AppRunner or Render will yield 10x higher hiring return than setting up a complex local Minikube cluster."
+        # ---------------------------------------------------------
+        # KUBERNETES
+        # ---------------------------------------------------------
+
+        if (
+            "kubernetes" in query
+            or "k8s" in query
+        ):
+            return self._kubernetes_response(
+                weakest,
+                strongest,
             )
 
-        elif "why" in query_lower and ("score" in query_lower or "low" in query_lower):
-            return (
-                f"Your GitHub score is currently **{dev_profile.get('github_score', 79)}/100**. Here is why:\n\n"
-                f"- **Strengths (+85)**: Clean modular code structure and solid Python/SQL implementation.\n"
-                f"- **Deductions (-20)**: 0 of your top repositories currently include automated unit test suites (`pytest` or `jest`).\n"
-                f"- **Deductions (-15)**: Missing `.github/workflows` CI/CD configuration files.\n\n"
-                f"Adding automated tests and CI/CD to **'{repo_names[0] if repo_names else 'your repo'}'** will immediately raise your score above 88."
+        # ---------------------------------------------------------
+        # SCORE
+        # ---------------------------------------------------------
+
+        if (
+            "score" in query
+            or "low" in query
+            or "github" in query
+        ):
+            return self._score_response(
+                github_score,
+                portfolio_score,
+                weakest,
+                analyses,
             )
 
-        elif "build" in query_lower or "next" in query_lower or "what should i" in query_lower:
-            top_repo = repo_names[0] if repo_names else "your existing repository"
-            return (
-                f"**Don't build another generic Todo app or Weather dashboard!**\n\n"
-                f"Instead, upgrade your existing repository **'{top_repo}'**:\n"
-                f"1. Add a **Dockerfile** and `docker-compose.yml` to containerize the service.\n"
-                f"2. Add a **Pytest test suite** covering core API endpoints.\n"
-                f"3. Integrate **Redis** caching to reduce GET endpoint latency.\n"
-                f"4. Add a **GitHub Actions CI/CD workflow** that runs tests on every push.\n\n"
-                f"This transforms your existing work into a production-grade portfolio piece!"
+        # ---------------------------------------------------------
+        # WHAT NEXT / BUILD
+        # ---------------------------------------------------------
+
+        if (
+            "build" in query
+            or "next" in query
+            or "improve" in query
+            or "learn" in query
+        ):
+            return self._next_step_response(
+                repos,
+                weakest,
+                dev_profile,
             )
 
-        else:
-            return (
-                f"I've analyzed your GitHub profile and repositories ({len(repos)} projects found). "
-                f"Your primary strength lies in **{', '.join(strongest[:2])}** with a Portfolio Score of **{portfolio_score}/100**. "
-                f"To improve your job readiness, I recommend focusing on **{', '.join(weakest[:2])}**. "
-                f"Ask me anything about your repos, resume alignment, or job matching!"
+        # ---------------------------------------------------------
+        # GENERAL
+        # ---------------------------------------------------------
+
+        return self._general_response(
+            primary_role,
+            portfolio_score,
+            strongest,
+            weakest,
+            repo_names,
+        )
+
+    # =============================================================
+    # RESPONSES
+    # =============================================================
+
+    def _readiness_response(
+        self,
+        role: str,
+        readiness: float,
+        strongest: list[Any],
+        weakest: list[Any],
+        repos: list[str],
+    ) -> str:
+
+        response = (
+            f"### Your current profile\n\n"
+            f"**Primary role:** {role}\n"
+            f"**Readiness score:** {readiness}/100\n\n"
+        )
+
+        if strongest:
+            response += (
+                f"**Current strengths:** "
+                f"{', '.join(map(str, strongest[:5]))}\n\n"
             )
+
+        if weakest:
+            response += (
+                f"**Current gaps:** "
+                f"{', '.join(map(str, weakest[:5]))}\n\n"
+            )
+
+        response += (
+            "For your next step, focus on closing the largest "
+            "evidence gaps rather than starting an unrelated project."
+        )
+
+        return response
+
+    def _project_response(
+        self,
+        repos: list[str],
+        analyses: list[dict[str, Any]],
+    ) -> str:
+
+        if not repos:
+            return (
+                "I couldn't find any GitHub repositories in the "
+                "current account context."
+            )
+
+        # Use actual repository analysis when available.
+        scored = []
+
+        for index, repo in enumerate(repos):
+            score = 0
+
+            if index < len(analyses):
+                score = analyses[index].get(
+                    "overall_score",
+                    0,
+                )
+
+            scored.append(
+                (repo, score)
+            )
+
+        scored.sort(
+            key=lambda item: item[1],
+            reverse=True,
+        )
+
+        response = "### Projects to consider\n\n"
+
+        for index, (repo, score) in enumerate(
+            scored[:3],
+            start=1,
+        ):
+            response += (
+                f"{index}. **{repo}**"
+            )
+
+            if score:
+                response += (
+                    f" — repository quality score: "
+                    f"**{score}/100**"
+                )
+
+            response += "\n"
+
+        response += (
+            "\nUse the repositories with the strongest engineering "
+            "evidence and the clearest README/project story on your "
+            "resume."
+        )
+
+        return response
+
+    def _kubernetes_response(
+        self,
+        weakest: list[Any],
+        strongest: list[Any],
+    ) -> str:
+
+        weak_text = " ".join(
+            str(skill).lower()
+            for skill in weakest
+        )
+
+        if (
+            "docker" in weak_text
+            or "devops" in weak_text
+            or "cloud" in weak_text
+        ):
+            return (
+                "Before Kubernetes, strengthen the infrastructure "
+                "fundamentals already identified as gaps in your "
+                "profile.\n\n"
+                "Focus on **Docker → Docker Compose → deployment → "
+                "CI/CD**, then move into Kubernetes."
+            )
+
+        return (
+            "Kubernetes can be useful for backend/cloud roles, but "
+            "your current profile does not require making it the "
+            "immediate priority. Build evidence around your existing "
+            "stack first, then add Kubernetes when you have a "
+            "deployment workflow to orchestrate."
+        )
+
+    def _score_response(
+        self,
+        github_score: float,
+        portfolio_score: float,
+        weakest: list[Any],
+        analyses: list[dict[str, Any]],
+    ) -> str:
+
+        response = (
+            f"### Current GitVia metrics\n\n"
+            f"- **GitHub score:** {github_score}/100\n"
+            f"- **Portfolio score:** {portfolio_score}/100\n\n"
+        )
+
+        if weakest:
+            response += (
+                "**Main areas reducing your profile strength:**\n\n"
+            )
+
+            for skill in weakest[:5]:
+                response += f"- {skill}\n"
+
+        response += (
+            "\nThese are the areas I'd investigate first instead "
+            "of assuming that adding another project will improve "
+            "the profile."
+        )
+
+        return response
+
+    def _next_step_response(
+        self,
+        repos: list[dict[str, Any]],
+        weakest: list[Any],
+        profile: dict[str, Any],
+    ) -> str:
+
+        repo_name = (
+            repos[0].get("name")
+            if repos
+            else "your existing project"
+        )
+
+        if weakest:
+            first_gap = str(weakest[0])
+
+            return (
+                f"### Your next move\n\n"
+                f"The strongest signal in your current profile is "
+                f"the gap around **{first_gap}**.\n\n"
+                f"Instead of starting a new generic project, use "
+                f"**{repo_name}** to create evidence for that skill.\n\n"
+                f"Build one concrete feature, test it, document it, "
+                f"and commit the result."
+            )
+
+        return (
+            f"Your profile doesn't show a single dominant gap right "
+            f"now. Use **{repo_name}** to strengthen production "
+            f"evidence: testing, deployment, documentation, and "
+            f"measurable performance."
+        )
+
+    def _general_response(
+        self,
+        role: str,
+        portfolio_score: float,
+        strongest: list[Any],
+        weakest: list[Any],
+        repos: list[str],
+    ) -> str:
+
+        return (
+            f"### GitVia Career Context\n\n"
+            f"**Role:** {role}\n"
+            f"**Portfolio score:** {portfolio_score}/100\n"
+            f"**Repositories analyzed:** {len(repos)}\n\n"
+            f"**Strengths:** "
+            f"{', '.join(map(str, strongest[:4])) or 'No strong skills detected'}\n\n"
+            f"**Areas to improve:** "
+            f"{', '.join(map(str, weakest[:4])) or 'No major gaps detected'}"
+        )

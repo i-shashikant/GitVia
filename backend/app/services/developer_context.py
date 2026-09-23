@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 from app.github.client import GitHubClient, GitHubAPIError
@@ -6,53 +7,88 @@ from app.analyzers.profile_analyzer import ProfileAnalyzer
 from app.models import User
 
 
-async def build_developer_context(current_user: User) -> dict[str, Any]:
-    """
-    Single source of truth for "give me this user's real GitHub repos,
-    their per-repo analysis, and their aggregated developer profile."
+async def _analyze_single_repo(
+    client: GitHubClient,
+    repo: dict[str, Any],
+    repo_analyzer: RepositoryAnalyzer,
+) -> dict[str, Any]:
 
-    Used by roadmap, chat, and career/job-matching endpoints so they
-    don't each re-implement the fetch-and-analyze pipeline.
-    """
+    owner = repo["owner"]["login"]
+    name = repo["name"]
+    branch = repo.get("default_branch") or "main"
+
+    readme_task = client.get_repo_readme(owner, name)
+    tree_task = client.get_repo_tree(owner, name, branch)
+
+    readme, paths = await asyncio.gather(
+        readme_task,
+        tree_task,
+        return_exceptions=True,
+    )
+
+    if isinstance(readme, Exception):
+        readme = None
+
+    if isinstance(paths, Exception):
+        paths = []
+
+    return repo_analyzer.analyze_repo(
+        name=name,
+        readme=readme,
+        paths=paths,
+        language=repo.get("language"),
+        stars=repo.get("stargazers_count", 0),
+        forks=repo.get("forks_count", 0),
+    )
+
+
+async def build_developer_context(
+    current_user: User,
+) -> dict[str, Any]:
+
     if not current_user.access_token:
-        raise GitHubAPIError("GitHub account is not connected")
+        raise GitHubAPIError(
+            "GitHub account is not connected"
+        )
 
-    client = GitHubClient(current_user.access_token)
+    client = GitHubClient(
+        current_user.access_token
+    )
+
     repo_analyzer = RepositoryAnalyzer()
     profile_analyzer = ProfileAnalyzer()
 
+    # Fetch repositories once.
     repos = await client.get_user_repos()
 
-    analyses: list[dict[str, Any]] = []
-    for repo in repos:
-        owner = repo["owner"]["login"]
-        name = repo["name"]
-        branch = repo.get("default_branch") or "main"
-
-        try:
-            readme = await client.get_repo_readme(owner, name)
-        except GitHubAPIError:
-            readme = None
-
-        try:
-            paths = await client.get_repo_tree(owner, name, branch)
-        except GitHubAPIError:
-            paths = []
-
-        analysis = repo_analyzer.analyze_repo(
-            name=name,
-            readme=readme,
-            paths=paths,
-            language=repo.get("language"),
-            stars=repo.get("stargazers_count", 0),
-            forks=repo.get("forks_count", 0),
+    # Analyze repositories concurrently.
+    tasks = [
+        _analyze_single_repo(
+            client,
+            repo,
+            repo_analyzer,
         )
-        analyses.append(analysis)
+        for repo in repos
+    ]
 
-    dev_profile = profile_analyzer.analyze_profile(repos, analyses)
+    analyses = await asyncio.gather(
+        *tasks,
+        return_exceptions=True,
+    )
+
+    clean_analyses = [
+        analysis
+        for analysis in analyses
+        if not isinstance(analysis, Exception)
+    ]
+
+    dev_profile = profile_analyzer.analyze_profile(
+        repos,
+        clean_analyses,
+    )
 
     return {
         "repos": repos,
-        "analyses": analyses,
+        "analyses": clean_analyses,
         "profile": dev_profile,
     }

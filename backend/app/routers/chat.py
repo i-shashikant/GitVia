@@ -28,6 +28,11 @@ async def chat_with_assistant(
         raise HTTPException(status_code=401, detail=str(exc))
 
     assistant = CareerChatAssistant()
-    reply = assistant.generate_response(req.message, ctx["profile"], ctx["repos"])
+    reply = assistant.generate_response(
+        req.message,
+        ctx["profile"],
+        ctx["repos"],
+        ctx["analyses"],
+    )
 
     return {"query": req.message, "response": reply}
