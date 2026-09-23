@@ -1,10 +1,12 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const API_ORIGIN =
+  process.env.NEXT_PUBLIC_API_ORIGIN || "http://localhost:8000";
 
-async function apiFetch(
-  endpoint: string,
-  options: RequestInit = {}
-) {
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || `${API_ORIGIN}/api`;
+
+export const GITHUB_LOGIN_URL = `${API_ORIGIN}/api/auth/github`;
+
+async function apiFetch(endpoint: string, options: RequestInit = {}) {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     credentials: "include",
@@ -27,57 +29,41 @@ async function apiFetch(
   return response.json();
 }
 
-
-// ─────────────────────────────────────────────
-// AUTH
-// ─────────────────────────────────────────────
-
 export async function fetchCurrentUser() {
   return apiFetch("/auth/me");
 }
 
-
-// ─────────────────────────────────────────────
-// PROFILE
-// ─────────────────────────────────────────────
-
-export async function fetchProfile() {
-  return apiFetch("/profile");
+export async function logout() {
+  return apiFetch("/auth/logout", { method: "POST" });
 }
 
-
-// ─────────────────────────────────────────────
-// REPOSITORIES
-// ─────────────────────────────────────────────
-
-export async function fetchRepositories() {
-  return apiFetch("/repos");
+export async function fetchProfile(refresh = false) {
+  const suffix = refresh ? "?refresh=true" : "";
+  return apiFetch(`/profile${suffix}`);
 }
 
+export async function fetchRepositories(refresh = false) {
+  const suffix = refresh ? "?refresh=true" : "";
+  return apiFetch(`/repos${suffix}`);
+}
 
-export async function fetchRepositoryDetail(
-  id: number | string
-) {
+export async function fetchRepositoryDetail(id: number | string) {
   return apiFetch(`/repos/${id}`);
 }
-
-
-// ─────────────────────────────────────────────
-// CAREER
-// ─────────────────────────────────────────────
 
 export async function uploadResume(file: File) {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(
-    `${API_BASE_URL}/career/resume/upload`,
-    {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    }
-  );
+  const response = await fetch(`${API_BASE_URL}/career/resume/upload`, {
+    method: "POST",
+    body: formData,
+    credentials: "include",
+  });
+
+  if (response.status === 401) {
+    throw new Error("AUTH_REQUIRED");
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -87,7 +73,6 @@ export async function uploadResume(file: File) {
 
   return response.json();
 }
-
 
 export async function analyzeJobDescription(
   title: string,
@@ -104,23 +89,18 @@ export async function analyzeJobDescription(
   });
 }
 
-
-// ─────────────────────────────────────────────
-// ROADMAP
-// ─────────────────────────────────────────────
-
 export async function fetchRoadmap(
-  targetRole: string = "Backend Engineer"
+  targetRole: string = "Backend Engineer",
+  refresh = false
 ) {
-  return apiFetch(
-    `/roadmap?target_role=${encodeURIComponent(targetRole)}`
-  );
+  const params = new URLSearchParams({ target_role: targetRole });
+  if (refresh) params.set("refresh", "true");
+  return apiFetch(`/roadmap?${params.toString()}`);
 }
 
-
-// ─────────────────────────────────────────────
-// CHAT
-// ─────────────────────────────────────────────
+export async function fetchChatHistory() {
+  return apiFetch("/chat");
+}
 
 export async function sendChatMessage(message: string) {
   return apiFetch("/chat", {

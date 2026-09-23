@@ -12,6 +12,7 @@ import {
   Cpu, 
   Compass
 } from "lucide-react";
+import { GITHUB_LOGIN_URL } from "@/lib/api";
 import { GithubIcon } from "@/components/icons/GithubIcon";
 
 export default function Home() {
@@ -23,7 +24,7 @@ export default function Home() {
 
         <div className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-cyan-950/60 px-4 py-1.5 text-xs font-semibold text-cyan-300 backdrop-blur-md mb-6">
           <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
-          <span>Not just another stats dashboard — AI that reasons over your actual code</span>
+          <span>Evidence from GitHub structure — README, tests, Docker, CI — not star counts</span>
         </div>
 
         <h1 className="mx-auto max-w-4xl text-4xl font-extrabold tracking-tight text-white sm:text-6xl leading-tight">
@@ -34,24 +35,24 @@ export default function Home() {
         </h1>
 
         <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-300 leading-relaxed">
-          GitVia connects your <strong>GitHub code</strong>, <strong>Resume</strong>, and <strong>Target Job Descriptions</strong> to identify skill gaps, evaluate project architecture, detect resume mismatches, and generate your personalized path toward job readiness.
+          GitVia scores your <strong>GitHub repositories</strong> with a documented rubric, compares that evidence to your <strong>resume</strong> and a <strong>job description</strong>, then builds a week-by-week plan. Scores are deterministic heuristics — not an LLM inventing a 92/100.
         </p>
 
         {/* CTA Buttons */}
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            href="http://localhost:8000/api/auth/github"
+          <a
+            href={GITHUB_LOGIN_URL}
             className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-7 py-3.5 text-base font-bold text-white shadow-xl shadow-cyan-500/25 hover:scale-105 transition-all"
           >
             <GithubIcon className="h-5 w-5" />
             <span>Continue with GitHub</span>
-          </Link>
+          </a>
 
           <Link
             href="/dashboard"
             className="flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-800/80 px-6 py-3.5 text-base font-semibold text-gray-200 hover:bg-gray-700 transition-all"
           >
-            <span>Explore Demo Intelligence</span>
+            <span>Open dashboard</span>
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>

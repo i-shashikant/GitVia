@@ -105,12 +105,12 @@ export default function RepositoriesPage() {
      LOAD REPOSITORIES
   ========================================================== */
 
-  async function loadRepositories() {
+  async function loadRepositories(refresh = false) {
     try {
       setLoading(true);
       setError(null);
 
-      const data = await fetchRepositories();
+      const data = await fetchRepositories(refresh);
 
       setRepositories(
         Array.isArray(data) ? data : []
@@ -301,7 +301,7 @@ export default function RepositoriesPage() {
           </div>
 
           <button
-            onClick={loadRepositories}
+            onClick={() => loadRepositories(true)}
             disabled={loading}
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-gray-700 bg-gray-900/80 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:border-cyan-500/40 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -575,7 +575,7 @@ export default function RepositoriesPage() {
               </p>
 
               <button
-                onClick={loadRepositories}
+                onClick={() => loadRepositories(true)}
                 className="mt-5 inline-flex items-center gap-2 rounded-lg border border-red-800 bg-red-950/40 px-4 py-2 text-xs font-semibold text-red-300 transition hover:bg-red-900/40"
               >
 

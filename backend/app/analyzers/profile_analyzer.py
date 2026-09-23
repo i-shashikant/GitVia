@@ -1,145 +1,120 @@
 from typing import Any
 
+from app.analyzers.career_analyzer import CareerAnalyzer
+
 
 class ProfileAnalyzer:
-    def analyze_profile(self, repos: list[dict[str, Any]], repo_analyses: list[dict[str, Any]]) -> dict[str, Any]:
-        """
-        Aggregates repository analyses to construct the AI Developer Profile.
-        """
+    def analyze_profile(
+        self,
+        repos: list[dict[str, Any]],
+        repo_analyses: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         if not repos or not repo_analyses:
             return self._default_profile()
 
-        # Compute average dimension scores
-        avg_doc = sum(a["documentation"]["score"] for a in repo_analyses) / len(repo_analyses)
-        avg_arch = sum(a["architecture"]["score"] for a in repo_analyses) / len(repo_analyses)
-        avg_code = sum(a["code_quality"]["score"] for a in repo_analyses) / len(repo_analyses)
-        avg_test = sum(a["testing"]["score"] for a in repo_analyses) / len(repo_analyses)
-        avg_devops = sum(a["devops"]["score"] for a in repo_analyses) / len(repo_analyses)
-        avg_scale = sum(a["scalability"]["score"] for a in repo_analyses) / len(repo_analyses)
-        avg_overall = sum(a["overall_score"] for a in repo_analyses) / len(repo_analyses)
+        def average(key_path: list[str]) -> float:
+            values = []
+            for analysis in repo_analyses:
+                node: Any = analysis
+                for key in key_path:
+                    node = (node or {}).get(key) if isinstance(node, dict) else None
+                if isinstance(node, (int, float)):
+                    values.append(float(node))
+            if not values:
+                return 0.0
+            return round(sum(values) / len(values), 1)
 
-        # Language / Skill breakdown
-        skills_counter = {
-            "Python": 90,
-            "SQL": 81,
-            "FastAPI": 85,
-            "JavaScript": 72,
-            "React": 63,
-            "Docker": int(avg_devops),
-            "AWS": max(25, int(avg_devops * 0.7)),
-            "System Design": int(avg_arch),
+        avg_doc = average(["documentation", "score"])
+        avg_arch = average(["architecture", "score"])
+        avg_code = average(["code_quality", "score"])
+        avg_test = average(["testing", "score"])
+        avg_devops = average(["devops", "score"])
+        avg_scale = average(["scalability", "score"])
+        avg_overall = average(["overall_score"])
+
+        analysis_by_name = {
+            analysis.get("name"): analysis
+            for analysis in repo_analyses
+            if analysis.get("name")
         }
 
-        # Role detection
-        primary_role = "Python Backend Developer"
-        secondary_role = "AI / Full Stack"
-        current_level = "Intermediate"
+        enriched = []
+        for index, repo in enumerate(repos):
+            name = repo.get("name")
+            analysis = analysis_by_name.get(name)
+            if analysis is None and index < len(repo_analyses):
+                analysis = repo_analyses[index]
+            analysis = analysis or {}
+            enriched.append(
+                {
+                    **repo,
+                    "analysis": analysis,
+                    "quality_score": analysis.get("overall_score", 0),
+                    "tech_stack": repo.get("tech_stack")
+                    or analysis.get("tech_stack")
+                    or [],
+                }
+            )
 
-        if avg_overall > 85:
-            current_level = "Senior / Production Ready"
-        elif avg_overall > 65:
-            current_level = "Intermediate"
-        else:
-            current_level = "Junior / Aspiring"
+        career = CareerAnalyzer().analyze(enriched)
 
-        # Strongest vs Weakest
-        strongest = ["REST APIs", "Python", "SQL & Database Design", "FastAPI Core"]
-        weakest = []
-        if avg_devops < 65:
-            weakest.append("DevOps & Cloud (Docker, AWS, CI/CD)")
-        if avg_test < 65:
-            weakest.append("Automated Unit & Integration Testing")
-        if avg_scale < 65:
-            weakest.append("System Scalability & Redis Caching")
-
-        if not weakest:
-            weakest = ["Advanced Kubernetes Orchestration", "Microservices Security"]
-
-        # Composite Portfolio Score (0-100)
-        portfolio_score = round(
-            (avg_overall * 0.40) +
-            (avg_code * 0.20) +
-            (avg_doc * 0.15) +
-            (avg_devops * 0.15) +
-            (avg_test * 0.10),
-            1
-        )
-
-        readiness_score = round(portfolio_score * 0.95, 1)
-
-        # Aggregate Actionable Recommendations
-        all_fixes = []
-        for a in repo_analyses:
-            all_fixes.extend(a.get("actionable_improvements", []))
-        
-        # Deduplicate recommendations while maintaining order
-        seen = set()
-        recommendations = []
-        for fix in all_fixes:
-            if fix not in seen:
-                seen.add(fix)
-                recommendations.append(fix)
-
-        if not recommendations:
-            recommendations = [
-                "Add Docker containerization to main backend repositories.",
-                "Implement pytest test suites across Python projects.",
-                "Add live deployment links to repository README files."
-            ]
+        recommendations = list(career.get("recommended_actions") or [])
+        seen = set(recommendations)
+        for analysis in repo_analyses:
+            for fix in analysis.get("actionable_improvements", []):
+                if fix not in seen:
+                    seen.add(fix)
+                    recommendations.append(fix)
 
         return {
-            "primary_role": primary_role,
-            "secondary_role": secondary_role,
-            "current_level": current_level,
-            "portfolio_score": portfolio_score,
-            "github_score": round(avg_overall, 1),
-            "readiness_score": readiness_score,
+            "primary_role": career.get("primary_role") or "Software Developer",
+            "secondary_role": career.get("secondary_role") or "Software Developer",
+            "current_level": career.get("current_level") or "Developing",
+            "portfolio_score": career.get("portfolio_score") or 0,
+            "github_score": career.get("github_score") or avg_overall,
+            "readiness_score": career.get("readiness_score") or 0,
             "dimension_averages": {
-                "projects": round(avg_overall, 1),
-                "github": round(avg_code, 1),
-                "documentation": round(avg_doc, 1),
-                "testing": round(avg_test, 1),
-                "devops": round(avg_devops, 1),
-                "scalability": round(avg_scale, 1),
+                "projects": avg_overall,
+                "github": avg_overall,
+                "documentation": avg_doc,
+                "testing": avg_test,
+                "devops": avg_devops,
+                "scalability": avg_scale,
+                "architecture": avg_arch,
+                "code_quality": avg_code,
             },
-            "skill_scores": skills_counter,
-            "strongest_skills": strongest,
-            "weakest_skills": weakest,
-            "top_recommendations": recommendations[:5],
+            "skill_scores": career.get("skill_scores") or {},
+            "strongest_skills": career.get("strongest_skills") or [],
+            "weakest_skills": career.get("weakest_skills") or [],
+            "top_recommendations": recommendations[:8],
+            "role_matches": career.get("role_matches") or [],
+            "career_gaps": career.get("career_gaps") or [],
         }
 
     def _default_profile(self) -> dict[str, Any]:
         return {
-            "primary_role": "Full Stack Developer",
-            "secondary_role": "Backend Engineer",
-            "current_level": "Intermediate",
-            "portfolio_score": 81.0,
-            "github_score": 79.0,
-            "readiness_score": 76.0,
+            "primary_role": "Unknown",
+            "secondary_role": "Unknown",
+            "current_level": "Unknown",
+            "portfolio_score": 0,
+            "github_score": 0,
+            "readiness_score": 0,
             "dimension_averages": {
-                "projects": 88,
-                "github": 79,
-                "documentation": 71,
-                "testing": 62,
-                "devops": 64,
-                "scalability": 75,
+                "projects": 0,
+                "github": 0,
+                "documentation": 0,
+                "testing": 0,
+                "devops": 0,
+                "scalability": 0,
+                "architecture": 0,
+                "code_quality": 0,
             },
-            "skill_scores": {
-                "Python": 90,
-                "SQL": 81,
-                "FastAPI": 85,
-                "JavaScript": 72,
-                "React": 63,
-                "Docker": 42,
-                "AWS": 31,
-                "System Design": 70,
-            },
-            "strongest_skills": ["APIs & Microservices", "Python", "SQL & Relational DBs"],
-            "weakest_skills": ["Cloud Infrastructure (AWS)", "Automated Testing", "DevOps & CI/CD"],
+            "skill_scores": {},
+            "strongest_skills": [],
+            "weakest_skills": [],
             "top_recommendations": [
-                "Add automated tests (Pytest/Jest) to primary backend repository.",
-                "Add Dockerfile and docker-compose.yml to containerize project.",
-                "Configure GitHub Actions workflow for automated build checks.",
-                "Deploy project X to AWS or Render and add live URL to README."
-            ]
+                "Connect GitHub and analyze at least one original repository."
+            ],
+            "role_matches": [],
+            "career_gaps": [],
         }

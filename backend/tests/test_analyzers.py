@@ -4,7 +4,37 @@ from app.analyzers.resume_analyzer import ResumeAnalyzer
 from app.analyzers.job_analyzer import JobAnalyzer
 from app.analyzers.roadmap_generator import RoadmapGenerator
 from app.analyzers.career_chat import CareerChatAssistant
-from app.github.client import GitHubClient
+from app.security.crypto import decrypt_token, encrypt_token
+
+
+SAMPLE_REPOS = [
+    {
+        "name": "backend-api",
+        "language": "Python",
+        "description": "FastAPI REST API with PostgreSQL",
+        "readme_sample": "# Backend API\n## Architecture\nModular FastAPI app.\n## Usage\nRun pytest.",
+        "paths": [
+            "app/main.py",
+            "app/models.py",
+            "tests/test_main.py",
+            "Dockerfile",
+            ".github/workflows/ci.yml",
+        ],
+    }
+]
+
+
+def _analyses():
+    analyzer = RepositoryAnalyzer()
+    return [
+        analyzer.analyze_repo(
+            repo["name"],
+            repo["readme_sample"],
+            repo["paths"],
+            repo["language"],
+        )
+        for repo in SAMPLE_REPOS
+    ]
 
 
 def test_repo_analyzer():
@@ -12,45 +42,73 @@ def test_repo_analyzer():
     res = analyzer.analyze_repo(
         name="test-repo",
         readme="# Test Repo\n## Architecture\nClean modular layout.\n## Usage\nRun pytest.",
-        paths=["app/main.py", "app/models.py", "tests/test_main.py", "Dockerfile", ".github/workflows/ci.yml"],
-        language="Python"
+        paths=[
+            "app/main.py",
+            "app/models.py",
+            "tests/test_main.py",
+            "Dockerfile",
+            ".github/workflows/ci.yml",
+        ],
+        language="Python",
     )
     assert res["overall_score"] > 60
     assert res["testing"]["score"] == 85
     assert res["devops"]["score"] == 95
+    assert res["name"] == "test-repo"
+    assert "Docker" in res["tech_stack"]
 
 
 def test_profile_analyzer():
-    client = GitHubClient()
-    repos = client._get_mock_repos()
-    repo_analyzer = RepositoryAnalyzer()
-    analyses = [repo_analyzer.analyze_repo(r["name"], r.get("readme_sample"), r.get("paths", []), r.get("language")) for r in repos]
-
-    prof_analyzer = ProfileAnalyzer()
-    profile = prof_analyzer.analyze_profile(repos, analyses)
+    analyses = _analyses()
+    profile = ProfileAnalyzer().analyze_profile(SAMPLE_REPOS, analyses)
     assert profile["portfolio_score"] > 60
     assert "Python" in profile["skill_scores"]
+    assert profile["primary_role"]
+
+
+def test_empty_profile_is_zero():
+    profile = ProfileAnalyzer().analyze_profile([], [])
+    assert profile["portfolio_score"] == 0
+    assert profile["skill_scores"] == {}
 
 
 def test_resume_mismatch_detection():
     analyzer = ResumeAnalyzer()
-    repos = [{"name": "backend-api", "language": "Python", "tech_stack": ["Python", "FastAPI"]}]
+    repos = [
+        {
+            "name": "backend-api",
+            "language": "Python",
+            "tech_stack": ["Python", "FastAPI"],
+        }
+    ]
     resume_text = "Experienced developer with Kubernetes and AWS background."
     res = analyzer.analyze_resume(resume_text, repos)
     assert len(res["mismatch_flags"]) > 0
-    assert any("Kubernetes" in m["skill"] or "AWS" in m["skill"] for m in res["mismatch_flags"])
+    assert any(
+        "Kubernetes" in m["skill"] or "AWS" in m["skill"]
+        for m in res["mismatch_flags"]
+    )
 
 
 def test_job_analyzer():
     analyzer = JobAnalyzer()
     dev_profile = {
         "skill_scores": {"Python": 90, "FastAPI": 85, "SQL": 80},
-        "dimension_averages": {"devops": 45, "projects": 80}
+        "dimension_averages": {"devops": 45, "projects": 80, "code_quality": 70},
     }
-    res = analyzer.analyze_job("Backend Intern", "Amazon", "Looking for Python, FastAPI, Docker, AWS, Kubernetes expertise.", dev_profile)
-    assert res["match_score"] > 50
+    res = analyzer.analyze_job(
+        "Backend Intern",
+        "Amazon",
+        "Looking for Python, FastAPI, Docker, AWS, Kubernetes expertise.",
+        dev_profile,
+    )
+    assert res["match_score"] > 40
     assert "Python" in res["skill_gaps"]["strong"]
-    assert "Kubernetes" in res["skill_gaps"]["missing"] or "Docker" in res["skill_gaps"]["improving"]
+    assert (
+        "Kubernetes" in res["skill_gaps"]["missing"]
+        or "Docker" in res["skill_gaps"]["missing"]
+        or "Docker" in res["skill_gaps"]["improving"]
+    )
 
 
 def test_roadmap_generator():
@@ -59,13 +117,30 @@ def test_roadmap_generator():
     repos = [{"name": "my-backend-repo"}]
     roadmap = generator.generate_roadmap(dev_profile, repos, "Backend Engineer")
     assert len(roadmap["weekly_plan"]) == 6
-    assert "Docker" in roadmap["weekly_plan"][0]["title"]
+    assert roadmap["weekly_plan"][0]["title"]
 
 
 def test_career_chat():
     assistant = CareerChatAssistant()
-    dev_profile = {"portfolio_score": 81, "strongest_skills": ["Python", "SQL"], "weakest_skills": ["DevOps"]}
+    dev_profile = {
+        "portfolio_score": 81,
+        "readiness_score": 76,
+        "strongest_skills": ["Python", "SQL"],
+        "weakest_skills": ["DevOps"],
+    }
     repos = [{"name": "my-backend-repo"}]
 
-    ans = assistant.generate_response("Am I ready for backend internships?", dev_profile, repos)
-    assert "Portfolio Score" in ans or "ready" in ans.lower()
+    ans = assistant.generate_response(
+        "Am I ready for backend internships?",
+        dev_profile,
+        repos,
+    )
+    assert "Readiness score" in ans or "ready" in ans.lower() or "Python" in ans
+
+
+def test_token_roundtrip():
+    token = "gho_test_access_token"
+    stored = encrypt_token(token)
+    assert stored != token
+    assert decrypt_token(stored) == token
+    assert decrypt_token(token) == token

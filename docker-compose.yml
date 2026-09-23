@@ -3,17 +3,35 @@ services:
     image: postgres:17
     container_name: gitvia-postgres
     restart: unless-stopped
-
     environment:
       POSTGRES_USER: gitvia
       POSTGRES_PASSWORD: gitvia_dev_password
       POSTGRES_DB: gitvia
-
     ports:
       - "5432:5432"
-
     volumes:
       - gitvia_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gitvia -d gitvia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    container_name: gitvia-api
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://gitvia:gitvia_dev_password@postgres:5432/gitvia
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   gitvia_postgres_data:

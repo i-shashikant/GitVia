@@ -22,7 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 
-import { fetchProfile, fetchRepositories } from "@/lib/api";
+import { fetchProfile, fetchRepositories, GITHUB_LOGIN_URL } from "@/lib/api";
 
 type ProfileData = {
   user: {
@@ -149,13 +149,21 @@ export default function DashboardPage() {
             {error || "The API returned an unexpected response."}
           </p>
 
-          <button
-            onClick={loadDashboard}
-            className="mt-6 inline-flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-gray-600 hover:bg-gray-800"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Retry
-          </button>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={loadDashboard}
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-gray-600 hover:bg-gray-800"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Retry
+            </button>
+            <a
+              href={GITHUB_LOGIN_URL}
+              className="inline-flex items-center rounded-xl bg-cyan-600 px-5 py-2.5 text-sm font-semibold text-white"
+            >
+              Connect GitHub
+            </a>
+          </div>
         </div>
       </div>
     );

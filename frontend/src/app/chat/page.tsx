@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { sendChatMessage } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { fetchChatHistory, sendChatMessage } from "@/lib/api";
 import { 
   MessageSquareCode, 
   Send, 
@@ -17,11 +17,28 @@ export default function ChatPage() {
     {
       role: "assistant",
       content:
-  "Hey! I'm your GitVia AI Career Assistant. I can reason over your GitHub repositories, developer profile, career gaps, roadmap, and target roles. What would you like to work on?"
+        "I answer from your cached GitHub analysis — scores, gaps, and repos. Ask about internship readiness, resume projects, or what to build next.",
     }
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    fetchChatHistory()
+      .then((history) => {
+        if (Array.isArray(history) && history.length > 0) {
+          setMessages(
+            history.map((item: { role: string; content: string }) => ({
+              role: item.role,
+              content: item.content,
+            }))
+          );
+        }
+      })
+      .catch(() => {
+        // Unauthenticated users keep the default greeting.
+      });
+  }, []);
 
   const samplePrompts = [
     "Am I ready for backend internships?",

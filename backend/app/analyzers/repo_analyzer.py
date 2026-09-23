@@ -1,4 +1,27 @@
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+TECH_HINTS = {
+    "docker": "Docker",
+    "dockerfile": "Docker",
+    "docker-compose": "Docker",
+    "kubernetes": "Kubernetes",
+    "k8s": "Kubernetes",
+    "terraform": "Terraform",
+    "fastapi": "FastAPI",
+    "django": "Django",
+    "flask": "Flask",
+    "react": "React",
+    "next": "Next.js",
+    "pytest": "Pytest",
+    "redis": "Redis",
+    "postgres": "PostgreSQL",
+    "celery": "Celery",
+    "aws": "AWS",
+}
 
 
 class RepositoryAnalyzer:
@@ -25,27 +48,15 @@ class RepositoryAnalyzer:
         Returns deterministic scores and actionable recommendations.
         """
 
-        # ============================================================
-        # DEBUG INFORMATION
-        # ============================================================
-
-        print("\n" + "=" * 70)
-        print(f"ANALYZING REPOSITORY: {name}")
-        print("=" * 70)
-
-        print(f"README EXISTS : {readme is not None}")
-        print(f"README LENGTH : {len(readme) if readme else 0}")
-        print(f"PATH COUNT    : {len(paths)}")
-        print(f"LANGUAGE      : {language}")
-        print(f"STARS         : {stars}")
-        print(f"FORKS         : {forks}")
-
-        print("\nFIRST 20 PATHS:")
-
-        for path in paths[:20]:
-            print(f"  {path}")
-
-        print("=" * 70)
+        logger.debug(
+            "Analyzing %s readme=%s paths=%s language=%s stars=%s forks=%s",
+            name,
+            bool(readme),
+            len(paths),
+            language,
+            stars,
+            forks,
+        )
 
         # ============================================================
         # NORMALIZE INPUT
@@ -403,29 +414,30 @@ class RepositoryAnalyzer:
                 "background workers for background processing."
             )
 
-        # ============================================================
-        # FINAL DEBUG SCORE
-        # ============================================================
+        tech_stack = []
+        haystack = " ".join(paths_set) + " " + readme_lower
+        if language:
+            tech_stack.append(language)
+        for hint, label in TECH_HINTS.items():
+            if hint in haystack and label not in tech_stack:
+                tech_stack.append(label)
 
-        print("\nSCORE BREAKDOWN")
-
-        print(f"Documentation : {doc_score}")
-        print(f"Architecture  : {arch_score}")
-        print(f"Code Quality  : {code_score}")
-        print(f"Testing       : {test_score}")
-        print(f"DevOps        : {devops_score}")
-        print(f"Scalability   : {scale_score}")
-
-        print("-" * 70)
-        print(f"OVERALL SCORE : {overall_score}")
-        print("=" * 70 + "\n")
-
-        # ============================================================
-        # RETURN RESULT
-        # ============================================================
+        logger.debug(
+            "Scored %s overall=%s doc=%s arch=%s code=%s test=%s devops=%s scale=%s",
+            name,
+            overall_score,
+            doc_score,
+            arch_score,
+            code_score,
+            test_score,
+            devops_score,
+            scale_score,
+        )
 
         return {
+            "name": name,
             "overall_score": overall_score,
+            "tech_stack": tech_stack,
 
             "documentation": {
                 "score": doc_score,

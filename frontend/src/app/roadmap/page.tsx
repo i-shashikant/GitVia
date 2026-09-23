@@ -111,11 +111,11 @@ export default function RoadmapPage() {
     {}
   );
 
-  async function loadRoadmap(role = targetRole) {
+  async function loadRoadmap(role = targetRole, refresh = false) {
     try {
       setError("");
 
-      const data = await fetchRoadmap(role);
+      const data = await fetchRoadmap(role, refresh);
       setRoadmap(data);
 
       const weeks =
@@ -193,7 +193,7 @@ export default function RoadmapPage() {
     setRefreshing(true);
 
     try {
-      await loadRoadmap(targetRole);
+      await loadRoadmap(targetRole, true);
     } finally {
       setRefreshing(false);
     }

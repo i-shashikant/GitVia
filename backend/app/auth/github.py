@@ -1,54 +1,55 @@
-import os
 import secrets
 from urllib.parse import urlencode
 
 import httpx
-import jwt
-from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.auth.session import COOKIE_NAME, create_session_token, session_cookie_kwargs
+from app.config import get_settings
 from app.database import get_db
 from app.models import User
+from app.security.crypto import encrypt_token
 
-load_dotenv()
+settings = get_settings()
 
 router = APIRouter(
     prefix="/api/auth/github",
     tags=["GitHub Authentication"],
 )
 
-GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
-GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
-GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI")
-JWT_SECRET = os.getenv("JWT_SECRET")
 
-if not all(
-    [
-        GITHUB_CLIENT_ID,
-        GITHUB_CLIENT_SECRET,
-        GITHUB_REDIRECT_URI,
-        JWT_SECRET,
-    ]
-):
-    raise RuntimeError("Missing required environment variables")
+def _oauth_configured() -> bool:
+    return all(
+        [
+            settings.github_client_id,
+            settings.github_client_secret,
+            settings.github_redirect_uri,
+            settings.jwt_secret,
+        ]
+    )
 
 
 @router.get("")
 def github_login():
+    if not _oauth_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub OAuth is not configured",
+        )
+
     state = secrets.token_urlsafe(32)
 
     params = {
-        "client_id": GITHUB_CLIENT_ID,
-        "redirect_uri": GITHUB_REDIRECT_URI,
-        "scope": "read:user user:email",
+        "client_id": settings.github_client_id,
+        "redirect_uri": settings.github_redirect_uri,
+        "scope": settings.github_oauth_scope,
         "state": state,
     }
 
     authorization_url = (
-        "https://github.com/login/oauth/authorize?"
-        + urlencode(params)
+        "https://github.com/login/oauth/authorize?" + urlencode(params)
     )
 
     response = RedirectResponse(
@@ -60,9 +61,10 @@ def github_login():
         key="oauth_state",
         value=state,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
         max_age=600,
+        path="/",
     )
 
     return response
@@ -75,9 +77,11 @@ async def github_callback(
     state: str | None = None,
     db: Session = Depends(get_db),
 ):
-    # ---------------------------------------------------------
-    # 1. Validate OAuth state
-    # ---------------------------------------------------------
+    if not _oauth_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="GitHub OAuth is not configured",
+        )
 
     stored_state = request.cookies.get("oauth_state")
 
@@ -94,18 +98,13 @@ async def github_callback(
         )
 
     async with httpx.AsyncClient(timeout=20.0) as client:
-
-        # -----------------------------------------------------
-        # 2. Exchange GitHub authorization code for token
-        # -----------------------------------------------------
-
         token_response = await client.post(
             "https://github.com/login/oauth/access_token",
             data={
-                "client_id": GITHUB_CLIENT_ID,
-                "client_secret": GITHUB_CLIENT_SECRET,
+                "client_id": settings.github_client_id,
+                "client_secret": settings.github_client_secret,
                 "code": code,
-                "redirect_uri": GITHUB_REDIRECT_URI,
+                "redirect_uri": settings.github_redirect_uri,
             },
             headers={
                 "Accept": "application/json",
@@ -119,7 +118,6 @@ async def github_callback(
             )
 
         token_data = token_response.json()
-
         access_token = token_data.get("access_token")
 
         if not access_token:
@@ -127,10 +125,6 @@ async def github_callback(
                 status_code=502,
                 detail="GitHub did not return an access token",
             )
-
-        # -----------------------------------------------------
-        # 3. Retrieve authenticated GitHub user
-        # -----------------------------------------------------
 
         user_response = await client.get(
             "https://api.github.com/user",
@@ -148,41 +142,29 @@ async def github_callback(
             )
 
         github_user = user_response.json()
-
-        # -----------------------------------------------------
-        # 4. Retrieve GitHub email
-        # -----------------------------------------------------
-
         email = github_user.get("email")
 
-        if not email:
-            email_response = await client.get(
-                "https://api.github.com/user/emails",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                    "User-Agent": "GitVia-Career-Intelligence",
-                },
+        email_response = await client.get(
+            "https://api.github.com/user/emails",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "GitVia-Career-Intelligence",
+            },
+        )
+
+        if email_response.status_code == 200:
+            emails = email_response.json()
+            primary_email = next(
+                (
+                    item["email"]
+                    for item in emails
+                    if item.get("primary") and item.get("verified")
+                ),
+                None,
             )
-
-            if email_response.status_code == 200:
-                emails = email_response.json()
-
-                primary_email = next(
-                    (
-                        item["email"]
-                        for item in emails
-                        if item.get("primary") and item.get("verified")
-                    ),
-                    None,
-                )
-
-                if primary_email:
-                    email = primary_email
-
-        # -----------------------------------------------------
-        # 5. Find existing GitVia user
-        # -----------------------------------------------------
+            if primary_email:
+                email = primary_email
 
         user = (
             db.query(User)
@@ -190,66 +172,37 @@ async def github_callback(
             .first()
         )
 
+        encrypted_token = encrypt_token(access_token)
+
         if user:
-            # Existing user
             user.github_username = github_user["login"]
             user.name = github_user.get("name")
-            user.email = github_user.get("email")
+            user.email = email
             user.avatar_url = github_user.get("avatar_url")
-
-            # IMPORTANT:
-            # Store the GitHub OAuth token so the rest of
-            # GitVia can access this user's GitHub account.
-            user.access_token = access_token
-
+            user.access_token = encrypted_token
         else:
-            # New user
             user = User(
                 github_id=github_user["id"],
                 github_username=github_user["login"],
                 name=github_user.get("name"),
-                email=github_user.get("email"),
+                email=email,
                 avatar_url=github_user.get("avatar_url"),
-                access_token=access_token,
+                access_token=encrypted_token,
             )
-
             db.add(user)
 
         db.commit()
         db.refresh(user)
 
-    # ---------------------------------------------------------
-    # 6. Create GitVia session JWT
-    # ---------------------------------------------------------
-
-    session_token = jwt.encode(
-        {
-            "user_id": user.id,
-            "github_id": user.github_id,
-            "github_login": user.github_username,
-        },
-        JWT_SECRET,
-        algorithm="HS256",
-    )
-
-    # ---------------------------------------------------------
-    # 7. Redirect to frontend
-    # ---------------------------------------------------------
-
+    session_token = create_session_token(user)
     response = RedirectResponse(
-        url="http://localhost:3000/auth/success",
+        url=f"{settings.frontend_url}/auth/success",
         status_code=302,
     )
-
-    response.delete_cookie("oauth_state")
-
+    response.delete_cookie("oauth_state", path="/")
     response.set_cookie(
-        key="gitvia_session",
+        key=COOKIE_NAME,
         value=session_token,
-        httponly=True,
-        secure=False,
-        samesite="lax",
-        max_age=60 * 60 * 24 * 7,
+        **session_cookie_kwargs(),
     )
-
     return response
