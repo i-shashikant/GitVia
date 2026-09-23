@@ -66,6 +66,18 @@ class RepositoryAnalyzer:
 
         readme_lower = (readme or "").lower()
 
+        sampled_files = sampled_files or {}
+
+        sampled_text = "\n".join(
+            content.lower()
+            for content in sampled_files.values()
+        )
+
+        sampled_paths = {
+            path.lower()
+            for path in sampled_files
+        }
+
         # ============================================================
         # 1. DOCUMENTATION SCORE
         # ============================================================
@@ -227,32 +239,97 @@ class RepositoryAnalyzer:
         # 4. TESTING SCORE
         # ============================================================
 
-        test_score = 15
+                # ============================================================
+        # 4. TESTING SCORE
+        # ============================================================
+
+        test_score = 20
         test_reasons = []
 
-        has_tests = any(
-            (
-                "test" in path
-                or "spec" in path
-                or path.startswith("tests/")
-            )
+        test_files = [
+            path
             for path in paths_set
+            if (
+                path.startswith("tests/")
+                or "/tests/" in path
+                or "/test/" in path
+                or path.startswith("test_")
+                or path.endswith("_test.py")
+                or path.endswith(".test.js")
+                or path.endswith(".test.ts")
+                or path.endswith(".test.tsx")
+                or path.endswith(".spec.js")
+                or path.endswith(".spec.ts")
+                or path.endswith(".spec.tsx")
+            )
+        ]
+
+        test_count = len(test_files)
+
+        has_pytest_config = any(
+            path in sampled_paths
+            for path in {
+                "pytest.ini",
+                "pyproject.toml",
+                "setup.cfg",
+            }
+        ) and (
+            "pytest" in sampled_text
         )
 
-        if has_tests:
+        has_jest = (
+            "jest" in sampled_text
+            or any(
+                "jest.config" in path
+                for path in sampled_paths
+            )
+        )
 
-            test_score = 85
-
+        if test_count == 0:
+            test_score = 20
             test_reasons.append(
-                "Automated test suite identified in project files."
+                "No test files were detected."
+            )
+
+        elif test_count == 1:
+            test_score = 45
+            test_reasons.append(
+                "1 automated test file detected."
+            )
+
+        elif test_count <= 3:
+            test_score = 65
+            test_reasons.append(
+                f"{test_count} automated test files detected."
+            )
+
+        elif test_count <= 8:
+            test_score = 80
+            test_reasons.append(
+                f"{test_count} automated test files detected."
             )
 
         else:
-
-            test_score = 30
-
+            test_score = 90
             test_reasons.append(
-                "No automated test suite (pytest/jest/unit tests) detected."
+                f"{test_count}+ automated test files detected."
+            )
+
+        if has_pytest_config:
+            test_score = min(100, test_score + 5)
+            test_reasons.append(
+                "Pytest configuration/dependency detected."
+            )
+
+        if has_jest:
+            test_score = min(100, test_score + 5)
+            test_reasons.append(
+                "Jest configuration/dependency detected."
+            )
+
+        if test_score < 70:
+            test_reasons.append(
+                "Testing evidence is limited."
             )
 
         # ============================================================
@@ -262,12 +339,31 @@ class RepositoryAnalyzer:
         devops_score = 15
         devops_reasons = []
 
-        has_docker = any(
-            (
-                "dockerfile" in path
-                or "docker-compose" in path
-            )
+        has_dockerfile = any(
+            path.endswith("dockerfile")
             for path in paths_set
+        )
+
+        has_compose = any(
+            "docker-compose.yml" in path
+            or "docker-compose.yaml" in path
+            for path in paths_set
+        )
+
+        dockerfile_content = next(
+            (
+                content
+                for path, content in sampled_files.items()
+                if path.lower().endswith("dockerfile")
+            ),
+            "",
+        ).lower()
+
+        has_real_docker_evidence = (
+            has_dockerfile
+            or has_compose
+            or "from python:" in sampled_text
+            or "from node:" in sampled_text
         )
 
         has_ci = any(

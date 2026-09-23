@@ -173,3 +173,52 @@ class GitHubClient:
         tree = data.get("tree", [])
         paths = [item.get("path") for item in tree if item.get("path")]
         return paths[: self.settings.max_tree_paths]
+    
+
+        async def get_repo_file(
+            self,
+            owner: str,
+            repo: str,
+            path: str,
+            ref: str | None = None,
+        ) -> str | None:
+            """
+            Fetch a single repository file from GitHub.
+
+            We intentionally sample selected files instead of downloading
+            the entire repository.
+            """
+            url = f"{self.BASE_URL}/repos/{owner}/{repo}/contents/{path}"
+
+            params = {}
+            if ref:
+                params["ref"] = ref
+
+            try:
+                response = await self._request(
+                    "GET",
+                    url,
+                    params=params,
+                )
+            except GitHubAPIError as exc:
+                if "returned 404" in str(exc):
+                    return None
+                raise
+
+            data = response.json()
+
+            # GitHub returns a list when the path points to a directory.
+            if isinstance(data, list):
+                return None
+
+            content = data.get("content")
+            if not content:
+                return None
+
+            try:
+                return base64.b64decode(content).decode(
+                    "utf-8",
+                    errors="replace",
+                )
+            except Exception:
+                return None

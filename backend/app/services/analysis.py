@@ -135,6 +135,7 @@ async def _analyze_single_repository(
     repo: dict[str, Any],
     semaphore: asyncio.Semaphore,
 ) -> dict[str, Any] | None:
+
     owner_data = repo.get("owner") or {}
     owner = owner_data.get("login")
     name = repo.get("name")
@@ -150,12 +151,112 @@ async def _analyze_single_repository(
                 client.get_repo_readme(owner, name),
                 timeout=45,
             )
+
             paths = await asyncio.wait_for(
-                client.get_repo_tree(owner, name, branch),
+                client.get_repo_tree(
+                    owner,
+                    name,
+                    branch,
+                ),
                 timeout=45,
             )
+
+            # --------------------------------------------------
+            # SAMPLE REAL FILES
+            # --------------------------------------------------
+
+            path_set = {path.lower(): path for path in paths}
+
+            candidates = [
+                "requirements.txt",
+                "pyproject.toml",
+                "package.json",
+                "tsconfig.json",
+                "dockerfile",
+                "docker-compose.yml",
+                "docker-compose.yaml",
+                ".github/workflows/ci.yml",
+                ".github/workflows/main.yml",
+                "pytest.ini",
+                "jest.config.js",
+                "jest.config.ts",
+                "manage.py",
+                "app/main.py",
+                "main.py",
+                "src/main.py",
+            ]
+
+            selected_files: list[str] = []
+
+            for candidate in candidates:
+                actual = path_set.get(candidate.lower())
+
+                if actual and actual not in selected_files:
+                    selected_files.append(actual)
+
+            # Also sample a few likely source files.
+            source_extensions = (
+                ".py",
+                ".js",
+                ".jsx",
+                ".ts",
+                ".tsx",
+                ".java",
+                ".go",
+                ".rs",
+            )
+
+            source_files = [
+                path
+                for path in paths
+                if path.lower().endswith(source_extensions)
+                and "node_modules/" not in path.lower()
+                and ".next/" not in path.lower()
+                and "dist/" not in path.lower()
+                and "build/" not in path.lower()
+            ]
+
+            for path in source_files:
+                if path not in selected_files:
+                    selected_files.append(path)
+
+                if len(selected_files) >= 12:
+                    break
+
+            sampled_files: dict[str, str] = {}
+
+            for path in selected_files[:12]:
+                try:
+                    content = await asyncio.wait_for(
+                        client.get_repo_file(
+                            owner,
+                            name,
+                            path,
+                            branch,
+                        ),
+                        timeout=30,
+                    )
+
+                    if content:
+                        # Prevent enormous files from destroying analysis.
+                        sampled_files[path] = content[:12000]
+
+                except (asyncio.TimeoutError, GitHubAPIError) as exc:
+                    logger.debug(
+                        "Could not sample %s/%s/%s: %s",
+                        owner,
+                        name,
+                        path,
+                        exc,
+                    )
+
         except (asyncio.TimeoutError, GitHubAPIError) as exc:
-            logger.warning("Skipping %s/%s: %s", owner, name, exc)
+            logger.warning(
+                "Skipping %s/%s: %s",
+                owner,
+                name,
+                exc,
+            )
             return None
 
     analysis = analyzer.analyze_repo(
@@ -165,12 +266,14 @@ async def _analyze_single_repository(
         language=repo.get("language"),
         stars=repo.get("stargazers_count", 0),
         forks=repo.get("forks_count", 0),
+        sampled_files=sampled_files,
     )
 
     return {
         "github_repo": repo,
         "readme": readme,
         "paths": paths,
+        "sampled_files": sampled_files,
         "analysis": analysis,
     }
 
@@ -359,3 +462,5 @@ async def get_developer_context(
 
     logger.info("Refreshing GitHub analysis for user %s", user.id)
     return await refresh_user_analysis(db, user)
+
+
