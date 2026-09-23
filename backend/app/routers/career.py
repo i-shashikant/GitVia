@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
 from app.database import get_db
+from app.auth.session import get_current_user
+from app.models import User
+from app.github.client import GitHubAPIError
+from app.services.developer_context import build_developer_context
 from app.analyzers.resume_analyzer import ResumeAnalyzer
 from app.analyzers.job_analyzer import JobAnalyzer
-from app.analyzers.profile_analyzer import ProfileAnalyzer
-from app.github.client import GitHubClient
 
 router = APIRouter(prefix="/api/career", tags=["Career Intelligence & Matching"])
 
@@ -17,15 +20,21 @@ class JobAnalyzeRequest(BaseModel):
 
 
 @router.post("/resume/upload")
-async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_resume(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     contents = await file.read()
     analyzer = ResumeAnalyzer()
     raw_text = analyzer.extract_text_from_pdf(contents)
 
-    client = GitHubClient()
-    mock_repos = client._get_mock_repos()
+    try:
+        ctx = await build_developer_context(current_user)
+    except GitHubAPIError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
 
-    analysis = analyzer.analyze_resume(raw_text, mock_repos)
+    analysis = analyzer.analyze_resume(raw_text, ctx["repos"])
 
     return {
         "filename": file.filename,
@@ -34,23 +43,20 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
         "education": analysis["education"],
         "experience": analysis["experience"],
         "mismatch_flags": analysis["mismatch_flags"],
-        "bullets_suggestions": analysis["bullets_suggestions"]
+        "bullets_suggestions": analysis["bullets_suggestions"],
     }
 
 
 @router.post("/jobs/analyze")
-def analyze_job_description(req: JobAnalyzeRequest, db: Session = Depends(get_db)):
-    client = GitHubClient()
-    repos = client._get_mock_repos()
-
-    from app.analyzers.repo_analyzer import RepositoryAnalyzer
-    repo_analyzer = RepositoryAnalyzer()
-    analyses = [repo_analyzer.analyze_repo(r["name"], r.get("readme_sample"), r.get("paths", []), r.get("language")) for r in repos]
-    
-    prof_analyzer = ProfileAnalyzer()
-    dev_profile = prof_analyzer.analyze_profile(repos, analyses)
+async def analyze_job_description(
+    req: JobAnalyzeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        ctx = await build_developer_context(current_user)
+    except GitHubAPIError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
 
     job_analyzer = JobAnalyzer()
-    result = job_analyzer.analyze_job(req.title, req.company, req.job_text, dev_profile)
-
-    return result
+    return job_analyzer.analyze_job(req.title, req.company, req.job_text, ctx["profile"])
