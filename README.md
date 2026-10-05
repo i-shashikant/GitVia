@@ -1,5 +1,5 @@
 # GitVia
-
+## 🚧🚧 Under Development 🚧🚧
 > From what you build to where you go next.
 
 GitVia is an evidence-based career copilot for developers. It OAuths GitHub, scores repositories with a documented heuristic rubric (README, layout, tests, Docker, CI), compares that evidence to a resume and job description, then generates a week-by-week plan.
