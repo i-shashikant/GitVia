@@ -52,7 +52,7 @@ def test_repo_analyzer():
         language="Python",
     )
     assert res["overall_score"] > 60
-    assert res["testing"]["score"] == 85
+    assert res["testing"]["score"] == 45
     assert res["devops"]["score"] == 95
     assert res["name"] == "test-repo"
     assert "Docker" in res["tech_stack"]

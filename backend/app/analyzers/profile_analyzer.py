@@ -23,7 +23,7 @@ class ProfileAnalyzer:
                 for key in key_path:
                     node = (
                         (node or {}).get(key)
-                        if isinstance(node, dict)
+                        if isinstance(node, dict) 
                         else None
                     )
 

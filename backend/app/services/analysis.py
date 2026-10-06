@@ -68,23 +68,32 @@ def profile_payload(user: User, profile: dict[str, Any], repo_count: int) -> dic
     }
 
 
-def _has_cached_analysis(db: Session, user: User) -> bool:
+def _has_cached_analysis(
+    db: Session,
+    user: User,
+) -> bool:
+
     repo_count = (
         db.query(Repository)
-        .filter(Repository.user_id == user.id)
+        .filter(
+            Repository.user_id == user.id
+        )
         .count()
     )
 
     profile = (
         db.query(DeveloperProfile)
-        .filter(DeveloperProfile.user_id == user.id)
+        .filter(
+            DeveloperProfile.user_id == user.id
+        )
         .first()
     )
 
     if repo_count == 0 or profile is None:
         return False
 
-    # A profile with no meaningful analysis is not a valid cache.
+    scores = profile.skill_scores or {}
+
     has_scores = any(
         float(value or 0) > 0
         for value in (
@@ -95,14 +104,23 @@ def _has_cached_analysis(db: Session, user: User) -> bool:
     )
 
     has_dimensions = bool(
-        isinstance(profile.skill_scores, dict)
-        and profile.skill_scores.get("_dimension_averages")
+        scores.get("_dimension_averages")
     )
 
-    return has_scores and has_dimensions
+    has_career_data = (
+        "_role_matches" in scores
+        and "_career_gaps" in scores
+    )
 
+    return (
+        has_scores
+        and has_dimensions
+        and has_career_data
+    )
 
 def _profile_from_row(row: DeveloperProfile) -> dict[str, Any]:
+    scores = row.skill_scores or {}
+
     return {
         "primary_role": row.primary_role,
         "secondary_role": row.secondary_role,
@@ -110,44 +128,119 @@ def _profile_from_row(row: DeveloperProfile) -> dict[str, Any]:
         "portfolio_score": row.portfolio_score,
         "github_score": row.github_score,
         "readiness_score": row.readiness_score,
-        "dimension_averages": (row.skill_scores or {}).get("_dimension_averages")
-        if isinstance(row.skill_scores, dict) and "_dimension_averages" in (row.skill_scores or {})
-        else {
-            "projects": row.github_score,
-            "github": row.github_score,
-            "documentation": 0,
-            "testing": 0,
-            "devops": 0,
-            "scalability": 0,
-        },
+
+        "dimension_averages": scores.get(
+            "_dimension_averages",
+            {
+                "projects": row.portfolio_score,
+                "github": row.github_score,
+                "documentation": 0,
+                "testing": 0,
+                "devops": 0,
+                "scalability": 0,
+                "architecture": 0,
+                "code_quality": 0,
+            },
+        ),
+
         "skill_scores": {
             key: value
-            for key, value in (row.skill_scores or {}).items()
+            for key, value in scores.items()
             if not str(key).startswith("_")
         },
+
         "strongest_skills": row.strongest_skills or [],
         "weakest_skills": row.weakest_skills or [],
-        "top_recommendations": (row.skill_scores or {}).get("_recommendations", [])
-        if isinstance(row.skill_scores, dict)
-        else [],
+
+        "top_recommendations": scores.get(
+            "_recommendations",
+            [],
+        ),
+
+        "role_matches": scores.get(
+            "_role_matches",
+            [],
+        ),
+
+        "career_gaps": scores.get(
+            "_career_gaps",
+            [],
+        ),
     }
 
 
-def _store_profile(profile: dict[str, Any], row: DeveloperProfile) -> None:
-    row.primary_role = profile.get("primary_role") or "Software Developer"
-    row.secondary_role = profile.get("secondary_role")
-    row.current_level = profile.get("current_level") or "Developing"
-    row.strongest_skills = profile.get("strongest_skills") or []
-    row.weakest_skills = profile.get("weakest_skills") or []
-    scores = dict(profile.get("skill_scores") or {})
-    scores["_dimension_averages"] = profile.get("dimension_averages") or {}
-    scores["_recommendations"] = profile.get("top_recommendations") or []
-    row.skill_scores = scores
-    row.portfolio_score = float(profile.get("portfolio_score") or 0)
-    row.github_score = float(profile.get("github_score") or 0)
-    row.readiness_score = float(profile.get("readiness_score") or 0)
-    row.analyzed_at = datetime.utcnow()
+def _store_profile(
+    profile: dict[str, Any],
+    row: DeveloperProfile,
+) -> None:
 
+    row.primary_role = (
+        profile.get("primary_role")
+        or "Software Developer"
+    )
+
+    row.secondary_role = profile.get(
+        "secondary_role"
+    )
+
+    row.current_level = (
+        profile.get("current_level")
+        or "Developing"
+    )
+
+    row.strongest_skills = (
+        profile.get("strongest_skills")
+        or []
+    )
+
+    row.weakest_skills = (
+        profile.get("weakest_skills")
+        or []
+    )
+
+    scores = dict(
+        profile.get("skill_scores")
+        or {}
+    )
+
+    scores["_dimension_averages"] = (
+        profile.get("dimension_averages")
+        or {}
+    )
+
+    scores["_recommendations"] = (
+        profile.get("top_recommendations")
+        or []
+    )
+
+    scores["_role_matches"] = (
+        profile.get("role_matches")
+        or []
+    )
+
+    scores["_career_gaps"] = (
+        profile.get("career_gaps")
+        or []
+    )
+
+    row.skill_scores = scores
+
+    row.portfolio_score = float(
+        profile.get("portfolio_score")
+        or 0
+    )
+
+    row.github_score = float(
+        profile.get("github_score")
+        or 0
+    )
+
+    row.readiness_score = float(
+        profile.get("readiness_score")
+        or 0
+    )
+
+    row.analyzed_at = datetime.utcnow()
 
 async def _analyze_single_repository(
     client: GitHubClient,
