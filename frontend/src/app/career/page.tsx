@@ -192,15 +192,54 @@ Requirements:
             {jobResult && (
               <div className="space-y-6 pt-4 border-t border-gray-800">
                 {/* Match Score Banner */}
-                <div className="flex items-center justify-between rounded-xl border border-cyan-500/30 bg-cyan-950/40 p-5">
-                  <div>
-                    <span className="text-xs font-semibold uppercase tracking-wider text-cyan-400">{jobResult.company} Match Score</span>
-                    <div className="text-3xl font-extrabold text-white mt-1">{jobResult.match_score}%</div>
-                  </div>
-                  <div className="text-right text-xs space-y-1 font-mono text-gray-300">
-                    <div>Technical: <span className="text-cyan-400 font-bold">{jobResult.score_breakdown?.technical_skills}%</span></div>
-                    <div>Projects: <span className="text-emerald-400 font-bold">{jobResult.score_breakdown?.projects}%</span></div>
-                    <div>DevOps: <span className="text-amber-400 font-bold">{jobResult.score_breakdown?.devops}%</span></div>
+                <div className="rounded-xl border border-cyan-500/30 bg-cyan-950/40 p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-semibold uppercase tracking-wider text-cyan-400">
+                        {jobResult.company} Match Score
+                      </span>
+
+                      <div className="text-4xl font-extrabold text-white mt-1">
+                        {jobResult.overall_match_score ?? jobResult.match_score ?? 0}%
+                      </div>
+                    </div>
+
+                    <div className="text-right text-xs space-y-1.5 font-mono text-gray-300">
+                      <div>
+                        Technical:{" "}
+                        <span className="text-cyan-400 font-bold">
+                          {jobResult.tech_score ?? 0}%
+                        </span>
+                      </div>
+
+                      <div>
+                        Projects:{" "}
+                        <span className="text-emerald-400 font-bold">
+                          {jobResult.project_score ?? 0}%
+                        </span>
+                      </div>
+
+                      <div>
+                        Experience:{" "}
+                        <span className="text-purple-400 font-bold">
+                          {jobResult.experience_score ?? 0}%
+                        </span>
+                      </div>
+
+                      <div>
+                        DevOps:{" "}
+                        <span className="text-amber-400 font-bold">
+                          {jobResult.devops_score ?? 0}%
+                        </span>
+                      </div>
+
+                      <div>
+                        Problem Solving:{" "}
+                        <span className="text-rose-400 font-bold">
+                          {jobResult.problem_solving_score ?? 0}%
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 

@@ -84,6 +84,7 @@ async def analyze_job_description(
         req.company,
         req.job_text,
         ctx["profile"],
+        ctx["repos"],
     )
 
     job = JobDescription(
@@ -100,24 +101,35 @@ async def analyze_job_description(
     match = JobMatch(
         user_id=current_user.id,
         job_id=job.id,
-        overall_match_score=result.get("match_score") or 0,
-        tech_score=result.get("score_breakdown", {}).get("technical_skills", 0),
-        project_score=result.get("score_breakdown", {}).get("projects", 0),
-        experience_score=result.get("score_breakdown", {}).get("experience", 0),
-        devops_score=result.get("score_breakdown", {}).get("devops", 0),
-        problem_solving_score=result.get("score_breakdown", {}).get("problem_solving", 0),
-        missing_skills=result.get("skill_gaps", {}).get("missing") or [],
-        feedback_notes=result.get("missing_evidence_notes") or [],
+        overall_match_score=result.get("overall_match_score", 0),
+        tech_score=result.get("tech_score", 0),
+        project_score=result.get("project_score", 0),
+        experience_score=result.get("experience_score", 0),
+        devops_score=result.get("devops_score", 0),
+        problem_solving_score=result.get("problem_solving_score", 0),
+        missing_skills=result.get("missing_skills") or [],
+        feedback_notes=result.get("feedback_notes") or [],
         calculated_at=datetime.utcnow(),
     )
     db.add(match)
 
+    skill_gaps = result.get("skill_gaps") or {}
+
     gap = SkillGap(
         user_id=current_user.id,
         target_role=req.title,
-        strong_skills=result.get("skill_gaps", {}).get("strong") or [],
-        improving_skills=result.get("skill_gaps", {}).get("improving") or [],
-        missing_skills=result.get("skill_gaps", {}).get("missing") or [],
+        strong_skills=skill_gaps.get("strong") or [],
+        improving_skills=(
+            skill_gaps.get("improving")
+            or skill_gaps.get("weak")
+            or []
+        ),
+        missing_skills=skill_gaps.get("missing") or [],
+    )
+    result["skill_gaps"]["improving"] = (
+        result["skill_gaps"].get("improving")
+        or result["skill_gaps"].get("weak")
+        or []
     )
     db.add(gap)
     db.commit()
