@@ -167,35 +167,89 @@ def get_job_analysis_history(
             .first()
         )
 
-        history.append(
-            {
-                "job_id": job.id,
-                "match_id": match.id,
-                "title": job.title,
-                "company": job.company or "Unknown Company",
-                "overall_match_score": match.overall_match_score,
-                "tech_score": match.tech_score,
-                "project_score": match.project_score,
-                "experience_score": match.experience_score,
-                "devops_score": match.devops_score,
-                "problem_solving_score": match.problem_solving_score,
-                "required_skills": job.required_skills or [],
-                "preferred_skills": job.preferred_skills or [],
-                "strong_skills": skill_gap.strong_skills if skill_gap else [],
-                "improving_skills": skill_gap.improving_skills if skill_gap else [],
-                "missing_skills": (
-                    skill_gap.missing_skills
-                    if skill_gap
-                    else match.missing_skills or []
-                ),
-                "feedback_notes": match.feedback_notes or [],
-                "calculated_at": match.calculated_at.isoformat()
+        history.append({
+            "job_id": job.id,
+            "match_id": match.id,
+
+            # Original job information
+            "title": job.title,
+            "company": job.company or "Unknown Company",
+            "job_text": job.raw_text or "",
+
+            # Match scores
+            "overall_match_score": match.overall_match_score,
+            "tech_score": match.tech_score,
+            "project_score": match.project_score,
+            "experience_score": match.experience_score,
+            "devops_score": match.devops_score,
+            "problem_solving_score": match.problem_solving_score,
+
+            # Extracted requirements
+            "required_skills": job.required_skills or [],
+            "preferred_skills": job.preferred_skills or [],
+
+            # Match gaps
+            "missing_skills": match.missing_skills or [],
+            "feedback_notes": match.feedback_notes or [],
+
+            # Skill-gap snapshot
+            "strong_skills": skill_gap.strong_skills if skill_gap else [],
+            "improving_skills": (
+                skill_gap.improving_skills
+                if skill_gap
+                else []
+            ),
+            "skill_gap_missing_skills": (
+                skill_gap.missing_skills
+                if skill_gap
+                else match.missing_skills or []
+            ),
+
+            "calculated_at": (
+                match.calculated_at.isoformat()
                 if match.calculated_at
-                else None,
-            }
-        )
+                else None
+            ),
+        })
 
     return {
         "history": history,
         "count": len(history),
+    }
+
+@router.delete("/jobs/{job_id}")
+def delete_job_analysis(
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    job = (
+        db.query(JobDescription)
+        .filter(
+            JobDescription.id == job_id,
+            JobDescription.user_id == current_user.id,
+        )
+        .first()
+    )
+
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail="Job analysis not found.",
+        )
+
+    # Delete all matches belonging to this job first.
+    db.query(JobMatch).filter(
+        JobMatch.job_id == job.id,
+        JobMatch.user_id == current_user.id,
+    ).delete(synchronize_session=False)
+
+    # Delete the job itself.
+    db.delete(job)
+
+    db.commit()
+
+    return {
+        "success": True,
+        "job_id": job_id,
     }

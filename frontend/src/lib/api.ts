@@ -125,3 +125,10 @@ export async function sendChatMessage(message: string) {
 export async function fetchChatHistory() {
   return apiFetch("/chat/history");
 }
+
+export async function deleteJobAnalysis(jobId: number) {
+  return apiFetch(`/career/jobs/${jobId}`, {
+    method: "DELETE",
+  });
+}
+
