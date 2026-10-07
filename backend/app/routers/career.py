@@ -137,3 +137,65 @@ async def analyze_job_description(
     result["job_id"] = job.id
     result["match_id"] = match.id
     return result
+
+
+@router.get("/jobs/history")
+def get_job_analysis_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    matches = (
+        db.query(JobMatch)
+        .filter(JobMatch.user_id == current_user.id)
+        .order_by(JobMatch.calculated_at.desc())
+        .limit(20)
+        .all()
+    )
+
+    history = []
+
+    for match in matches:
+        job = match.job_description
+        skill_gap = (
+            db.query(SkillGap)
+            .filter(
+                SkillGap.user_id == current_user.id,
+                SkillGap.target_role == job.title,
+                SkillGap.created_at <= match.calculated_at,
+            )
+            .order_by(SkillGap.created_at.desc())
+            .first()
+        )
+
+        history.append(
+            {
+                "job_id": job.id,
+                "match_id": match.id,
+                "title": job.title,
+                "company": job.company or "Unknown Company",
+                "overall_match_score": match.overall_match_score,
+                "tech_score": match.tech_score,
+                "project_score": match.project_score,
+                "experience_score": match.experience_score,
+                "devops_score": match.devops_score,
+                "problem_solving_score": match.problem_solving_score,
+                "required_skills": job.required_skills or [],
+                "preferred_skills": job.preferred_skills or [],
+                "strong_skills": skill_gap.strong_skills if skill_gap else [],
+                "improving_skills": skill_gap.improving_skills if skill_gap else [],
+                "missing_skills": (
+                    skill_gap.missing_skills
+                    if skill_gap
+                    else match.missing_skills or []
+                ),
+                "feedback_notes": match.feedback_notes or [],
+                "calculated_at": match.calculated_at.isoformat()
+                if match.calculated_at
+                else None,
+            }
+        )
+
+    return {
+        "history": history,
+        "count": len(history),
+    }

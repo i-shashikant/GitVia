@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { uploadResume, analyzeJobDescription } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { uploadResume, analyzeJobDescription, fetchJobAnalysisHistory, } from "@/lib/api";
 import { 
   FileText, 
   Upload, 
@@ -32,6 +32,60 @@ Requirements:
   );
   const [jobResult, setJobResult] = useState<any>(null);
   const [analyzingJob, setAnalyzingJob] = useState(false);
+  useEffect(() => {
+    fetchJobAnalysisHistory()
+      .then((data) => {
+        setJobHistory(data.history || []);
+      })
+      .catch((err) => {
+        console.error("Failed to load job history:", err);
+      })
+      .finally(() => {
+        setLoadingHistory(false);
+      });
+  }, []);
+
+  const [jobHistory, setJobHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<number | null>(null);
+  
+  const handleHistorySelect = (job: any) => {
+    setSelectedHistoryId(job.match_id);
+
+    setJobTitle(job.title || "");
+    setCompany(job.company || "");
+
+    setJobResult({
+      company: job.company,
+      title: job.title,
+
+      overall_match_score: job.overall_match_score,
+      match_score: job.overall_match_score,
+
+      tech_score: job.tech_score,
+      project_score: job.project_score,
+      experience_score: job.experience_score,
+      devops_score: job.devops_score,
+      problem_solving_score: job.problem_solving_score,
+
+      required_skills: job.required_skills || [],
+      preferred_skills: job.preferred_skills || [],
+
+      skill_gaps: {
+        strong: job.strong_skills || [],
+        improving: job.improving_skills || [],
+        missing: job.missing_skills || [],
+      },
+
+      missing_skills: job.missing_skills || [],
+      feedback_notes: job.feedback_notes || [],
+    });
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  };
 
   const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !e.target.files[0]) return;
@@ -56,6 +110,13 @@ Requirements:
     try {
       const data = await analyzeJobDescription(jobTitle, company, jobText);
       setJobResult(data);
+      fetchJobAnalysisHistory()
+        .then((historyData) => {
+          setJobHistory(historyData.history || []);
+        })
+        .catch((err) => {
+          console.error("Failed to refresh job history:", err);
+        });
     } catch (err) {
       console.error(err);
     } finally {
@@ -291,6 +352,142 @@ Requirements:
                     </div>
                   </div>
                 </div>
+                {/* Job Analysis History */}
+                <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-6 space-y-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-xl font-bold text-white">
+                        Job Analysis History
+                      </h2>
+
+                      <p className="text-xs text-gray-400 mt-1">
+                        Your recently analyzed roles and match scores.
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border border-gray-700 bg-gray-800/60 px-3 py-1.5 text-xs text-gray-400">
+                      {jobHistory.length} saved
+                    </div>
+                  </div>
+
+                  {loadingHistory ? (
+                    <div className="flex items-center justify-center py-8 text-cyan-400">
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent" />
+                      <span className="ml-2 text-xs">
+                        Loading analysis history...
+                      </span>
+                    </div>
+                  ) : jobHistory.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-gray-700 bg-gray-900/40 p-8 text-center">
+                      <Search className="mx-auto h-7 w-7 text-gray-600" />
+
+                      <p className="mt-3 text-sm text-gray-400">
+                        No job analyses yet.
+                      </p>
+
+                      <p className="text-xs text-gray-600 mt-1">
+                        Analyze your first job description above.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {jobHistory.map((job) => (
+                        <div
+                          key={job.match_id}
+                          onClick={() => handleHistorySelect(job)}
+                          className={`cursor-pointer rounded-xl border bg-gray-950/50 p-4 transition-all ${
+                            selectedHistoryId === job.match_id
+                              ? "border-cyan-400/70 shadow-lg shadow-cyan-500/10"
+                              : "border-gray-800 hover:border-cyan-500/40"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <h3 className="font-bold text-white text-sm">
+                                {job.title}
+                              </h3>
+
+                              <p className="text-xs text-gray-500 mt-1">
+                                {job.company}
+                              </p>
+                            </div>
+
+                            <div className="text-right">
+                              <div className="text-xl font-extrabold text-cyan-400">
+                                {job.overall_match_score}%
+                              </div>
+
+                              <div className="text-[9px] uppercase tracking-wider text-gray-600">
+                                match
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 mt-4 text-[10px]">
+                            <div className="rounded-lg bg-gray-900 p-2">
+                              <span className="text-gray-500">Technical</span>
+                              <div className="text-cyan-400 font-bold mt-0.5">
+                                {job.tech_score}%
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg bg-gray-900 p-2">
+                              <span className="text-gray-500">Projects</span>
+                              <div className="text-emerald-400 font-bold mt-0.5">
+                                {job.project_score}%
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg bg-gray-900 p-2">
+                              <span className="text-gray-500">Experience</span>
+                              <div className="text-purple-400 font-bold mt-0.5">
+                                {job.experience_score}%
+                              </div>
+                            </div>
+
+                            <div className="rounded-lg bg-gray-900 p-2">
+                              <span className="text-gray-500">DevOps</span>
+                              <div className="text-amber-400 font-bold mt-0.5">
+                                {job.devops_score}%
+                              </div>
+                            </div>
+                          </div>
+
+                          {job.missing_skills?.length > 0 && (
+                            <div className="mt-4">
+                              <span className="text-[10px] uppercase tracking-wider text-gray-600">
+                                Missing
+                              </span>
+
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {job.missing_skills.slice(0, 4).map(
+                                  (skill: string, index: number) => (
+                                    <span
+                                      key={index}
+                                      className="rounded-md border border-rose-500/20 bg-rose-950/20 px-2 py-1 text-[10px] text-rose-300"
+                                    >
+                                      {skill}
+                                    </span>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          <div className="mt-3 text-[10px] text-cyan-400 font-medium">
+                            Click to restore analysis →
+                          </div>
+
+                          <div className="mt-4 pt-3 border-t border-gray-800 text-[10px] text-gray-600">
+                            {job.calculated_at
+                              ? new Date(job.calculated_at).toLocaleString()
+                              : "Recently analyzed"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                        
               </div>
             )}
           </div>

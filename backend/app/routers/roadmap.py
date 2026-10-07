@@ -7,7 +7,7 @@ from app.analyzers.roadmap_generator import RoadmapGenerator
 from app.auth.session import get_current_user
 from app.database import get_db
 from app.github.client import GitHubAPIError
-from app.models import Roadmap, User
+from app.models import JobMatch, Roadmap, SkillGap, User
 from app.services.developer_context import build_developer_context
 
 router = APIRouter(prefix="/api/roadmap", tags=["Personalized Learning Roadmap"])

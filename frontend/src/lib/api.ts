@@ -89,6 +89,10 @@ export async function analyzeJobDescription(
   });
 }
 
+export async function fetchJobAnalysisHistory() {
+  return apiFetch("/career/jobs/history");
+}
+
 export async function fetchRoadmap(
   targetRole: string = "Backend Engineer",
   refresh = false
