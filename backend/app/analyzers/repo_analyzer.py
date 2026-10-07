@@ -473,43 +473,281 @@ class RepositoryAnalyzer:
         # ACTIONABLE IMPROVEMENTS
         # ============================================================
 
+        # Recommendations are deliberately repository-aware. A data/ML
+        # notebook should not receive the same advice as a backend API.
+        context_text = " ".join(
+            [
+                name,
+                language or "",
+                readme_lower,
+                " ".join(paths_set),
+                sampled_text,
+            ]
+        )
+
+        data_ml_markers = (
+            "machine learning",
+            "data science",
+            "data analytics",
+            "prediction",
+            "kaggle",
+            "jupyter",
+            "notebook",
+            "pandas",
+            "scikit-learn",
+            "sklearn",
+            "tensorflow",
+            "pytorch",
+            "xgboost",
+            "catboost",
+            "lightgbm",
+        )
+
+        frontend_markers = (
+            "react",
+            "next.js",
+            "nextjs",
+            "vue",
+            "angular",
+            "svelte",
+            "frontend",
+            "portfolio",
+            "tailwind",
+        )
+
+        backend_markers = (
+            "fastapi",
+            "flask",
+            "django",
+            "express",
+            "node.js",
+            "nodejs",
+            "spring",
+            "api",
+            "backend",
+            "rest api",
+            "postgres",
+            "mysql",
+        )
+
+        # ============================================================
+        # REPOSITORY TYPE CLASSIFICATION
+        # ============================================================
+        #
+        # Prefer concrete stack/file evidence over generic README words.
+        # For example, mentioning "API" in a README should not make a
+        # portfolio or ML notebook a backend project.
+        # ============================================================
+
+        normalized_language = (language or "").lower()
+
+        has_backend_framework = any(
+            marker in context_text
+            for marker in (
+                "fastapi",
+                "flask",
+                "django",
+                "express",
+                "nestjs",
+                "spring boot",
+                "asp.net",
+                "laravel",
+                "rails",
+            )
+        )
+
+        has_frontend_framework = any(
+            marker in context_text
+            for marker in (
+                "react",
+                "next.js",
+                "nextjs",
+                "vue",
+                "angular",
+                "svelte",
+                "react native",
+            )
+        )
+
+        has_ml_framework = any(
+            marker in context_text
+            for marker in (
+                "scikit-learn",
+                "sklearn",
+                "tensorflow",
+                "pytorch",
+                "xgboost",
+                "catboost",
+                "lightgbm",
+            )
+        )
+
+        has_notebook_evidence = any(
+            path.endswith(".ipynb")
+            for path in paths_set
+        )
+
+        has_ml_data_language = normalized_language in {
+            "jupyter notebook",
+            "r",
+        }
+
+        has_python = normalized_language == "python"
+
+        has_node = (
+            normalized_language in {"javascript", "typescript"}
+            and any(
+                marker in context_text
+                for marker in (
+                    "package.json",
+                    "next",
+                    "react",
+                    "express",
+                    "node",
+                )
+            )
+        )
+
+        is_data_ml = (
+            has_ml_framework
+            or has_notebook_evidence
+            or has_ml_data_language
+            or any(marker in context_text for marker in data_ml_markers)
+        )
+
+        is_frontend = (
+            has_frontend_framework
+            or has_node
+        )
+
+        is_backend = (
+            has_backend_framework
+            or (
+                has_python
+                and any(
+                    marker in context_text
+                    for marker in (
+                        "requirements.txt",
+                        "pyproject.toml",
+                        "routes/",
+                        "models/",
+                        "services/",
+                        "controllers/",
+                        "api/",
+                    )
+                )
+            )
+        )
+
+        # A repository can contain frontend + backend code.
+        # In that case, backend-specific advice is still valid,
+        # but ML/data classification gets priority.
+
         improvements = []
 
-        if test_score < 70:
-
-            improvements.append(
-                f"Add automated tests (e.g. Pytest or Jest) to {name}."
-            )
-
-        if devops_score < 60:
-
-            if not has_real_docker_evidence:
-
+        if is_data_ml:
+            if test_score < 70:
                 improvements.append(
-                    f"Add a Dockerfile and docker-compose.yml "
-                    f"to containerize {name}."
+                    f"Move the core preprocessing/model logic in {name} into testable Python modules and add tests for data validation, feature engineering, and prediction behavior."
+                )
+
+            if doc_score < 80:
+                improvements.append(
+                    f"Document {name}'s dataset, target variable, feature engineering, evaluation metric, and reproducible run steps in the README."
+                )
+
+            if not any(
+                marker in context_text
+                for marker in ("requirements.txt", "pyproject.toml", "environment.yml", "pip install")
+            ):
+                improvements.append(
+                    f"Add a reproducible dependency/environment definition to {name} so the analysis can be rerun consistently."
+                )
+
+            if not any(
+                marker in context_text
+                for marker in ("api", "fastapi", "flask", "streamlit", "gradio")
+            ):
+                improvements.append(
+                    f"Add a small inference or prediction entry point to {name} so the model can be consumed outside the notebook."
                 )
 
             if not has_ci:
-
                 improvements.append(
-                    "Configure a GitHub Actions workflow "
-                    "(.github/workflows/ci.yml) for automated builds and testing."
+                    f"Add a lightweight CI workflow for {name} that validates the Python environment and runs the project tests."
                 )
 
-        if doc_score < 75:
+        elif is_frontend and not is_backend:
+            if test_score < 70:
+                improvements.append(
+                    f"Add component or end-to-end tests to {name} covering the main user flows."
+                )
 
-            improvements.append(
-                "Expand README.md with an explicit System Architecture "
-                "diagram and step-by-step setup guide."
-            )
+            if doc_score < 75:
+                improvements.append(
+                    f"Document the architecture, main user flows, local setup, and deployment process for {name}."
+                )
 
-        if scale_score < 70:
+            if not has_ci:
+                improvements.append(
+                    f"Add GitHub Actions to {name} for linting, type-checking, and production builds on every push."
+                )
 
-            improvements.append(
-                "Introduce Redis caching or asynchronous Celery "
-                "background workers for background processing."
-            )
+            if scale_score < 70:
+                improvements.append(
+                    f"Add measurable performance and accessibility checks to {name} and document the results."
+                )
+
+        elif is_backend:
+            if test_score < 70:
+                improvements.append(
+                    f"Add API and service-layer tests to {name}, including success, validation, and failure paths."
+                )
+
+            if devops_score < 60:
+                if not has_real_docker_evidence:
+                    improvements.append(
+                        f"Containerize {name} with a production-ready Dockerfile and a local Compose setup."
+                    )
+
+                if not has_ci:
+                    improvements.append(
+                        f"Add GitHub Actions to {name} to run tests and build checks automatically."
+                    )
+
+            if doc_score < 75:
+                improvements.append(
+                    f"Document {name}'s API architecture, environment variables, database setup, and deployment steps."
+                )
+
+            if scale_score < 70:
+                improvements.append(
+                    f"Add one evidence-backed production concern to {name}, such as caching, background jobs, rate limiting, or database indexing."
+                )
+
+        else:
+            if test_score < 70:
+                improvements.append(
+                    f"Add automated tests that cover the most important workflows in {name}."
+                )
+
+            if doc_score < 75:
+                improvements.append(
+                    f"Expand {name}'s README with architecture, setup, usage, and deployment documentation."
+                )
+
+            if not has_ci:
+                improvements.append(
+                    f"Add a GitHub Actions workflow for {name} to automate the project's existing checks."
+                )
+
+            if devops_score < 60 and language and language.lower() not in {"jupyter notebook"}:
+                improvements.append(
+                    f"Add an appropriate deployment or packaging workflow to {name}."
+                )
+
+        # Keep recommendations concise and unique.
+        improvements = list(dict.fromkeys(improvements))[:5]
 
         tech_stack = []
         haystack = " ".join(paths_set) + " " + readme_lower

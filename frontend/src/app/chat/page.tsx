@@ -45,6 +45,7 @@ export default function ChatPage() {
     "Which of my projects should I put on my resume?",
     "Should I learn Kubernetes?",
     "Why is my GitHub score low?",
+    "What does my latest job match say?",
     "What should I build next?"
   ];
 
@@ -62,6 +63,14 @@ export default function ChatPage() {
       setMessages([...newMsgs, { role: "assistant", content: res.response }]);
     } catch (err) {
       console.error(err);
+      setMessages([
+        ...newMsgs,
+        {
+          role: "assistant",
+          content:
+            "I couldn't reach the career assistant right now. Check that the FastAPI backend is running and that your GitHub session is still connected.",
+        },
+      ]);
     } finally {
       setLoading(false);
     }

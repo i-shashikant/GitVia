@@ -8,7 +8,7 @@ from app.analyzers.career_chat import CareerChatAssistant
 from app.auth.session import get_current_user
 from app.database import get_db
 from app.github.client import GitHubAPIError
-from app.models import ChatMessage, User
+from app.models import ChatMessage, JobMatch, Resume, User
 from app.services.developer_context import build_developer_context
 
 router = APIRouter(prefix="/api/chat", tags=["AI Career Assistant Chat"])
@@ -61,12 +61,55 @@ async def chat_with_assistant(
     )
     db.add(user_message)
 
+    # Give the assistant the latest analyzed job as additional context.
+    latest_match = (
+        db.query(JobMatch)
+        .filter(JobMatch.user_id == current_user.id)
+        .order_by(JobMatch.calculated_at.desc())
+        .first()
+    )
+
+    job_context = None
+    if latest_match and latest_match.job_description:
+        job = latest_match.job_description
+        job_context = {
+            "title": job.title,
+            "company": job.company,
+            "overall_match_score": latest_match.overall_match_score,
+            "tech_score": latest_match.tech_score,
+            "project_score": latest_match.project_score,
+            "experience_score": latest_match.experience_score,
+            "devops_score": latest_match.devops_score,
+            "problem_solving_score": latest_match.problem_solving_score,
+            "required_skills": job.required_skills or [],
+            "preferred_skills": job.preferred_skills or [],
+            "missing_skills": latest_match.missing_skills or [],
+            "feedback_notes": latest_match.feedback_notes or [],
+        }
+
+    latest_resume = (
+        db.query(Resume)
+        .filter(Resume.user_id == current_user.id)
+        .order_by(Resume.uploaded_at.desc())
+        .first()
+    )
+
+    resume_context = None
+    if latest_resume:
+        resume_context = {
+            "filename": latest_resume.filename,
+            "mismatch_flags": latest_resume.mismatch_flags or [],
+            "parsed": latest_resume.parsed_json or {},
+        }
+
     assistant = CareerChatAssistant()
     reply = assistant.generate_response(
         req.message,
         ctx["profile"],
         ctx["repos"],
         ctx["analyses"],
+        job_context=job_context,
+        resume_context=resume_context,
     )
 
     assistant_message = ChatMessage(

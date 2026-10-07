@@ -123,7 +123,7 @@ export async function sendChatMessage(message: string) {
 }
 
 export async function fetchChatHistory() {
-  return apiFetch("/chat/history");
+  return apiFetch("/chat");
 }
 
 export async function deleteJobAnalysis(jobId: number) {

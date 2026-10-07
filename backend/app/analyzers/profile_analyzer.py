@@ -86,20 +86,40 @@ class ProfileAnalyzer:
         if career_github_score is None:
             career_github_score = avg_overall
 
-        recommendations = list(
-            career.get("recommended_actions") or []
-        )
-
-        seen = set(recommendations)
+        # Prefer repository-specific recommendations. These are based on
+        # the actual files, stack, README, testing, and deployment evidence
+        # for each project. Generic career advice is only used as a fallback.
+        recommendations: list[str] = []
+        seen: set[str] = set()
 
         for analysis in repo_analyses:
-            for fix in analysis.get(
-                "actionable_improvements",
-                [],
-            ):
-                if fix not in seen:
-                    seen.add(fix)
-                    recommendations.append(fix)
+            repo_name = analysis.get("name") or "this repository"
+
+            for fix in analysis.get("actionable_improvements", []):
+                if not fix or fix in seen:
+                    continue
+
+                seen.add(fix)
+                recommendations.append(fix)
+
+                if len(recommendations) >= 6:
+                    break
+
+            if len(recommendations) >= 6:
+                break
+
+        # If repository analysis did not produce enough useful actions, add
+        # career-level gaps that are actually supported by the profile.
+        if len(recommendations) < 6:
+            for action in career.get("recommended_actions") or []:
+                if not action or action in seen:
+                    continue
+
+                seen.add(action)
+                recommendations.append(action)
+
+                if len(recommendations) >= 6:
+                    break
 
         return {
             "primary_role": (

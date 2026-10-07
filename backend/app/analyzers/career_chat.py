@@ -9,6 +9,8 @@ class CareerChatAssistant:
         dev_profile: dict[str, Any],
         repos: list[dict[str, Any]],
         analyses: list[dict[str, Any]] | None = None,
+        job_context: dict[str, Any] | None = None,
+        resume_context: dict[str, Any] | None = None,
     ) -> str:
 
         analyses = analyses or []
@@ -44,6 +46,33 @@ class CareerChatAssistant:
             "primary_role",
             "Developer",
         )
+
+        # When a job has been analyzed, let the assistant answer from the
+        # latest real match instead of pretending the job context does not exist.
+        if job_context and any(
+            phrase in query
+            for phrase in (
+                "match",
+                "job description",
+                "missing skill",
+                "missing skills",
+                "job requirements",
+                "this job",
+                "that job",
+            )
+        ):
+            return self._job_response(job_context)
+
+        if resume_context and any(
+            phrase in query
+            for phrase in (
+                "resume",
+                "cv",
+                "mismatch",
+                "claim",
+            )
+        ):
+            return self._resume_response(resume_context)
 
         repo_names = [
             repo.get("name")
@@ -138,6 +167,73 @@ class CareerChatAssistant:
             weakest,
             repo_names,
         )
+
+    def _job_response(
+        self,
+        job: dict[str, Any],
+    ) -> str:
+        title = job.get("title") or "Target role"
+        company = job.get("company") or "the company"
+        score = job.get("overall_match_score", 0)
+        missing = job.get("missing_skills") or []
+        feedback = job.get("feedback_notes") or []
+
+        response = (
+            f"### Latest job match\n\n"
+            f"**Role:** {title}\n"
+            f"**Company:** {company}\n"
+            f"**Match:** {score}%\n\n"
+        )
+
+        if missing:
+            response += (
+                "**Main missing requirements:** "
+                + ", ".join(map(str, missing[:8]))
+                + "\n\n"
+            )
+
+        if feedback:
+            response += "**What GitVia found:**\n\n"
+            for note in feedback[:4]:
+                response += f"- {note}\n"
+            response += "\n"
+
+        response += (
+            "Use the Career page's **Build Roadmap for This Job** action "
+            "to turn these gaps into a job-specific execution plan."
+        )
+
+        return response
+
+    def _resume_response(
+        self,
+        resume: dict[str, Any],
+    ) -> str:
+        flags = resume.get("mismatch_flags") or []
+        filename = resume.get("filename") or "your latest resume"
+
+        response = f"### Resume evidence check\n\n**File:** {filename}\n\n"
+
+        if not flags:
+            return response + (
+                "GitVia did not record any resume ↔ GitHub mismatch flags "
+                "for the latest upload. That does not prove every claim is "
+                "correct; it means the analyzer found no flagged mismatch."
+            )
+
+        response += "**Flags recorded by GitVia:**\n\n"
+        for flag in flags[:6]:
+            if isinstance(flag, dict):
+                message = flag.get("message") or flag.get("claim") or str(flag)
+                action = flag.get("action")
+                response += f"- {message}"
+                if action:
+                    response += f" — {action}"
+                response += "\n"
+            else:
+                response += f"- {flag}\n"
+
+        return response
 
     # =============================================================
     # RESPONSES
