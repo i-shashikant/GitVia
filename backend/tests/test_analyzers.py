@@ -111,6 +111,27 @@ def test_job_analyzer():
     )
 
 
+def test_job_analyzer_detects_common_languages_and_primary_repo_language():
+    analyzer = JobAnalyzer()
+
+    res = analyzer.analyze_job(
+        "Software Development",
+        "Acme",
+        "Required: .NET, C++ Programming, Java, Python, JavaScript, Kubernetes.",
+        {"skill_scores": {"Python": 85}},
+        [{"name": "cpp-service", "language": "C++", "tech_stack": []}],
+    )
+
+    assert ".NET" in res["required_skills"]
+    assert "C++" in res["required_skills"]
+    assert "Java" in res["required_skills"]
+    assert "Kubernetes" in res["required_skills"]
+
+    cpp_result = next(
+        item for item in res["skill_results"] if item["skill"] == "C++"
+    )
+    assert cpp_result["developer_score"] >= 45
+
 def test_roadmap_generator():
     generator = RoadmapGenerator()
     dev_profile = {}
@@ -118,6 +139,62 @@ def test_roadmap_generator():
     roadmap = generator.generate_roadmap(dev_profile, repos, "Backend Engineer")
     assert len(roadmap["weekly_plan"]) == 6
     assert roadmap["weekly_plan"][0]["title"]
+
+
+
+
+def test_job_specific_roadmap_uses_job_requirements():
+    generator = RoadmapGenerator()
+
+    dev_profile = {
+        "strongest_skills": ["Python", "JavaScript", "React"],
+        "weakest_skills": ["Testing"],
+        "skill_scores": {
+            "Python": 90,
+            "JavaScript": 85,
+            "React": 80,
+            "Testing": 55,
+        },
+        "job_required_skills": [
+            ".NET",
+            "C++",
+            "Java",
+            "JavaScript",
+            "Python",
+            "React",
+            "MySQL",
+            "Node.js",
+            "Testing",
+        ],
+        "job_preferred_skills": [],
+        "job_missing_skills": [
+            ".NET",
+            "C++",
+            "Java",
+            "MySQL",
+            "Node.js",
+        ],
+    }
+
+    roadmap = generator.generate_roadmap(
+        dev_profile,
+        [{"name": "gitvia"}],
+        "Software Development",
+    )
+
+    assert roadmap["job_specific"] is True
+    assert roadmap["target_role"] == "Software Development"
+    assert ".NET" in roadmap["missing_skills"]
+    assert "C++" in roadmap["missing_skills"]
+    assert "Java" in roadmap["missing_skills"]
+    assert "Python" in roadmap["strong_skills"]
+    assert roadmap["weekly_plan"][0]["tasks"][0]["skills"][0] in {
+        ".NET",
+        "C++",
+        "Java",
+        "MySQL",
+        "Node.js",
+    }
 
 
 def test_career_chat():

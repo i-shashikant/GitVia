@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
@@ -14,9 +13,7 @@ import {
   Flag,
   Layers,
   Map,
-  RefreshCw,
   Sparkles,
-  Target,
   Terminal,
   Trophy,
   Wrench,
@@ -30,7 +27,6 @@ type RoadmapTask = {
   description?: string;
   skill?: string;
   skills?: string[];
-  priority?: string;
   estimated_hours?: number;
   hours?: number;
   completed?: boolean;
@@ -52,20 +48,18 @@ type RoadmapWeek = {
 type RoadmapData = {
   target_role?: string;
   duration_weeks?: number;
-
+  headline?: string;
   job_id?: number;
   job_title?: string;
-  company?: string;
+  company?: string | null;
   job_match_score?: number;
-
+  job_specific?: boolean;
   weekly_plan?: RoadmapWeek[];
   weekly_tasks?: RoadmapWeek[];
   weeks?: RoadmapWeek[];
-
   strong_skills?: string[];
   improving_skills?: string[];
   missing_skills?: string[];
-
   skill_gaps?: {
     strong?: string[];
     improving?: string[];
@@ -79,7 +73,7 @@ function normalizeTask(task: RoadmapTask): RoadmapTask {
     title: task.title || task.task || "Development task",
     description:
       task.description ||
-      "Work on this area to strengthen your profile for the target role.",
+      "Work on this area to strengthen your profile for the target job.",
     estimated_hours: task.estimated_hours || task.hours || 4,
     completed: Boolean(task.completed ?? task.done),
   };
@@ -95,111 +89,82 @@ function normalizeWeek(week: RoadmapWeek, index: number): RoadmapWeek {
     description:
       week.description ||
       week.focus ||
-      "Build practical evidence for your target role.",
-    tasks: rawTasks.map((task: any) => {
-      if (typeof task === "string") {
-        return normalizeTask({
-          title: task,
-          description: week.deliverable || week.guidance,
-        });
-      }
-
-      return normalizeTask(task);
-    }),
+      "Build practical evidence for the target job.",
+    tasks: rawTasks.map((task: RoadmapTask | string) =>
+      typeof task === "string"
+        ? normalizeTask({
+            title: task,
+            description: week.deliverable || week.guidance,
+          })
+        : normalizeTask(task)
+    ),
   };
 }
 
 export default function RoadmapPage() {
-  const searchParams = useSearchParams();
-
-  const jobIdParam = searchParams.get("job_id");
-  const jobId = jobIdParam ? Number(jobIdParam) : undefined;
-
   const [roadmap, setRoadmap] = useState<RoadmapData | null>(null);
-  const [targetRole, setTargetRole] = useState("Backend Engineer");
+  const [jobId, setJobId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [expandedWeek, setExpandedWeek] = useState<number | null>(1);
   const [completedTasks, setCompletedTasks] = useState<Record<string, boolean>>(
     {}
   );
 
-  const isJobRoadmap =
-    typeof jobId === "number" && Number.isFinite(jobId);
-
-  async function loadRoadmap(
-    role = targetRole,
-    refresh = false
-  ) {
-    try {
-      setError("");
-
-      const data = await fetchRoadmap(
-        role,
-        refresh,
-        isJobRoadmap ? jobId : undefined
-      );
-
-      setRoadmap(data);
-
-      if (data?.target_role) {
-        setTargetRole(data.target_role);
-      }
-
-      const weeks =
-        data?.weekly_plan ||
-        data?.weekly_tasks ||
-        data?.weeks ||
-        [];
-
-      if (weeks.length > 0) {
-        setExpandedWeek(weeks[0]?.week || 1);
-      }
-    } catch (err) {
-      console.error(err);
-
-      setError(
-        "Unable to load your roadmap. Make sure the backend is running."
-      );
-    }
-  }
-
   useEffect(() => {
-    setLoading(true);
-    setCompletedTasks({});
+    const params = new URLSearchParams(window.location.search);
+    const rawJobId = params.get("job_id");
+    const parsedJobId = rawJobId ? Number(rawJobId) : null;
+    const activeJobId =
+      parsedJobId !== null && Number.isFinite(parsedJobId)
+        ? parsedJobId
+        : null;
 
-    loadRoadmap()
-      .catch(console.error)
+    setJobId(activeJobId);
+    setLoading(true);
+    setError("");
+
+    fetchRoadmap(
+      "Backend Engineer",
+      false,
+      activeJobId ?? undefined
+    )
+      .then((data) => {
+        setRoadmap(data);
+
+        const weeks =
+          data?.weekly_plan || data?.weekly_tasks || data?.weeks || [];
+
+        if (weeks.length > 0) {
+          setExpandedWeek(weeks[0]?.week || 1);
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        setError(
+          "Unable to load this roadmap. Return to Career & Jobs and build the roadmap from a saved job analysis."
+        );
+      })
       .finally(() => setLoading(false));
-  }, [jobIdParam]);
+  }, []);
 
   const weeks = useMemo(() => {
     if (!roadmap) return [];
 
     const rawWeeks =
-      roadmap.weekly_plan ||
-      roadmap.weekly_tasks ||
-      roadmap.weeks ||
-      [];
+      roadmap.weekly_plan || roadmap.weekly_tasks || roadmap.weeks || [];
 
     return rawWeeks.map(normalizeWeek);
   }, [roadmap]);
 
   const strongSkills =
-    roadmap?.strong_skills ||
-    roadmap?.skill_gaps?.strong ||
-    [];
+    roadmap?.strong_skills || roadmap?.skill_gaps?.strong || [];
 
   const improvingSkills =
-    roadmap?.improving_skills ||
-    roadmap?.skill_gaps?.improving ||
-    [];
+    roadmap?.improving_skills || roadmap?.skill_gaps?.improving || [];
 
   const missingSkills =
-    roadmap?.missing_skills ||
-    roadmap?.skill_gaps?.missing ||
-    [];
+    roadmap?.missing_skills || roadmap?.skill_gaps?.missing || [];
 
   const totalTasks = weeks.reduce(
     (total, week) => total + (week.tasks?.length || 0),
@@ -209,9 +174,7 @@ export default function RoadmapPage() {
   const completedCount = Object.values(completedTasks).filter(Boolean).length;
 
   const progress =
-    totalTasks > 0
-      ? Math.round((completedCount / totalTasks) * 100)
-      : 0;
+    totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0;
 
   function toggleTask(weekNumber: number, taskIndex: number) {
     const key = `${weekNumber}-${taskIndex}`;
@@ -220,22 +183,6 @@ export default function RoadmapPage() {
       ...previous,
       [key]: !previous[key],
     }));
-  }
-
-  async function handleRefresh() {
-    setRefreshing(true);
-
-    try {
-      await loadRoadmap(targetRole, true);
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
-  function handleRoleChange(event: React.ChangeEvent<HTMLSelectElement>) {
-    const role = event.target.value;
-    setTargetRole(role);
-    loadRoadmap(role);
   }
 
   if (loading) {
@@ -252,7 +199,8 @@ export default function RoadmapPage() {
               Building your career roadmap...
             </p>
             <p className="mt-1 text-xs text-gray-500">
-              GitVia is analyzing your current profile and skill gaps.
+              GitVia is combining the job requirements with your GitHub
+              evidence.
             </p>
           </div>
         </div>
@@ -260,7 +208,7 @@ export default function RoadmapPage() {
     );
   }
 
-  if (error) {
+  if (error || !roadmap) {
     return (
       <div className="space-y-6 pb-12">
         <div className="rounded-2xl border border-rose-500/20 bg-rose-950/10 p-8">
@@ -272,17 +220,10 @@ export default function RoadmapPage() {
                 Roadmap unavailable
               </h1>
 
-              <p className="mt-2 text-sm text-gray-400">
-                {error}
+              <p className="mt-2 text-sm leading-6 text-gray-400">
+                {error ||
+                  "No roadmap was returned for the selected job analysis."}
               </p>
-
-              <button
-                onClick={handleRefresh}
-                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-xs font-bold text-black transition hover:bg-cyan-400"
-              >
-                <RefreshCw className="h-4 w-4" />
-                Try Again
-              </button>
             </div>
           </div>
         </div>
@@ -290,19 +231,18 @@ export default function RoadmapPage() {
     );
   }
 
+  const isJobSpecific = Boolean(jobId || roadmap.job_specific);
+
   return (
     <div className="space-y-8 pb-16">
-      {/* ------------------------------------------------ */}
       {/* HEADER */}
-      {/* ------------------------------------------------ */}
-
       <section className="relative overflow-hidden rounded-2xl border border-gray-800 bg-gray-900/60 p-6 md:p-8">
         <div className="pointer-events-none absolute -right-32 -top-32 h-80 w-80 rounded-full bg-cyan-500/10 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-40 left-1/3 h-80 w-80 rounded-full bg-purple-500/10 blur-3xl" />
 
         <div className="relative">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div>
+            <div className="max-w-3xl">
               <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-cyan-400">
                 <Map className="h-4 w-4" />
                 Career Roadmap
@@ -315,126 +255,74 @@ export default function RoadmapPage() {
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-400">
-                A personalized development plan generated from your GitHub
-                evidence, current strengths, improvement areas, and target
-                role.
+                {isJobSpecific
+                  ? "A job-specific development plan built from the requirements of this role and the evidence already present in your GitHub profile."
+                  : "A personalized development plan generated from your GitHub evidence and current development profile."}
               </p>
-              {isJobRoadmap && roadmap?.job_title && (
-                <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs">
-                  <span className="font-semibold text-cyan-300">
-                    Job-specific roadmap
-                  </span>
-
-                  <span className="text-gray-600">•</span>
-
-                  <span className="text-gray-300">
-                    {roadmap.job_title}
-                  </span>
-
-                  {roadmap.company && (
-                    <>
-                      <span className="text-gray-600">@</span>
-
-                      <span className="text-gray-400">
-                        {roadmap.company}
-                      </span>
-                    </>
-                  )}
-
-                  {typeof roadmap.job_match_score === "number" && (
-                    <>
-                      <span className="text-gray-600">•</span>
-
-                      <span className="font-semibold text-purple-300">
-                        {roadmap.job_match_score.toFixed(1)}% match
-                      </span>
-                    </>
-                  )}
-                </div>
-              )}
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <select
-                value={targetRole}
-                onChange={handleRoleChange}
-                disabled={isJobRoadmap}
-                className={`rounded-xl border border-gray-700 bg-gray-950 px-4 py-3 text-sm font-medium text-gray-200 outline-none transition focus:border-cyan-500 ${
-                  isJobRoadmap
-                    ? "cursor-not-allowed opacity-60"
-                    : ""
-                }`}
-              >
-                {isJobRoadmap && (
-                  <p className="text-[10px] text-gray-500 sm:max-w-[180px]">
-                    This roadmap is tied to the analyzed job.
+            {isJobSpecific && (
+              <div className="shrink-0 rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">
+                  Job-specific roadmap
+                </p>
+
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {roadmap.job_title || roadmap.target_role}
+                </p>
+
+                {roadmap.company && (
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {roadmap.company}
                   </p>
                 )}
-                <option value="Backend Engineer">
-                  Backend Engineer
-                </option>
-                <option value="Python Backend Developer">
-                  Python Backend Developer
-                </option>
-                <option value="Full Stack Developer">
-                  Full Stack Developer
-                </option>
-                <option value="Software Engineer">
-                  Software Engineer
-                </option>
-                <option value="Machine Learning Engineer">
-                  Machine Learning Engineer
-                </option>
-                <option value="AI Engineer">
-                  AI Engineer
-                </option>
-                <option value="Data Scientist">
-                  Data Scientist
-                </option>
-              </select>
-
-              <button
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm font-semibold text-gray-200 transition hover:border-cyan-500/40 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 ${
-                    refreshing ? "animate-spin" : ""
-                  }`}
-                />
-                Refresh
-              </button>
-            </div>
+              </div>
+            )}
           </div>
+
+          {isJobSpecific && typeof roadmap.job_match_score === "number" && (
+            <div className="relative mt-6 flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full border border-cyan-500/20 bg-cyan-500/5 px-3 py-1.5 font-semibold text-cyan-300">
+                Based on your analyzed job
+              </span>
+
+              <span className="text-gray-600">•</span>
+
+              <span className="text-gray-400">
+                Current match{" "}
+                <strong className="text-purple-300">
+                  {roadmap.job_match_score.toFixed(1)}%
+                </strong>
+              </span>
+            </div>
+          )}
         </div>
       </section>
 
-      {/* ------------------------------------------------ */}
-      {/* TARGET ROLE + PROGRESS */}
-      {/* ------------------------------------------------ */}
-
+      {/* SUMMARY */}
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-950/30 via-gray-900/70 to-gray-900 p-6">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-cyan-400">
-                Target Role
+                {isJobSpecific ? "Target Role" : "Profile Focus"}
               </p>
 
               <h2 className="mt-2 text-xl font-bold text-white">
-                {roadmap?.target_role || targetRole}
+                {isJobSpecific
+                  ? roadmap.target_role || roadmap.job_title || "Target role"
+                  : "General Development"}
               </h2>
             </div>
 
             <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/10">
-              <Target className="h-5 w-5 text-cyan-400" />
+              <Map className="h-5 w-5 text-cyan-400" />
             </div>
           </div>
 
           <p className="mt-4 text-xs leading-5 text-gray-400">
-            Every roadmap task is intended to move your existing profile
-            closer to this role.
+            Every roadmap task is selected to close the highest-impact gaps
+            for this target.
           </p>
         </div>
 
@@ -446,7 +334,7 @@ export default function RoadmapPage() {
               </p>
 
               <p className="mt-2 text-3xl font-extrabold text-white">
-                {roadmap?.duration_weeks || weeks.length || 6}
+                {roadmap.duration_weeks || weeks.length || 6}
                 <span className="ml-1 text-sm font-medium text-gray-500">
                   weeks
                 </span>
@@ -490,10 +378,7 @@ export default function RoadmapPage() {
         </div>
       </section>
 
-      {/* ------------------------------------------------ */}
       {/* SKILL GAP MATRIX */}
-      {/* ------------------------------------------------ */}
-
       <section className="rounded-2xl border border-gray-800 bg-gray-900/60 p-6">
         <div className="flex items-center gap-3 border-b border-gray-800 pb-5">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-500/10">
@@ -501,22 +386,19 @@ export default function RoadmapPage() {
           </div>
 
           <div>
-            <h2 className="font-bold text-white">
-              Skill Gap Matrix
-            </h2>
-
+            <h2 className="font-bold text-white">Skill Gap Matrix</h2>
             <p className="mt-0.5 text-xs text-gray-500">
-              What GitVia sees in your current profile.
+              {isJobSpecific
+                ? "What GitVia sees against this specific job."
+                : "What GitVia sees in your current profile."}
             </p>
           </div>
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          {/* Strong */}
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-950/10 p-5">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
                 Strong
               </span>
@@ -534,17 +416,15 @@ export default function RoadmapPage() {
                 ))
               ) : (
                 <span className="text-xs text-gray-500">
-                  No strong skills reported.
+                  No strong job-relevant skills identified.
                 </span>
               )}
             </div>
           </div>
 
-          {/* Improving */}
           <div className="rounded-xl border border-amber-500/20 bg-amber-950/10 p-5">
             <div className="flex items-center gap-2">
               <Wrench className="h-4 w-4 text-amber-400" />
-
               <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
                 Improving
               </span>
@@ -562,17 +442,15 @@ export default function RoadmapPage() {
                 ))
               ) : (
                 <span className="text-xs text-gray-500">
-                  No improvement areas reported.
+                  No improvement areas identified.
                 </span>
               )}
             </div>
           </div>
 
-          {/* Missing */}
           <div className="rounded-xl border border-rose-500/20 bg-rose-950/10 p-5">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-rose-400" />
-
               <span className="text-xs font-bold uppercase tracking-wider text-rose-400">
                 Missing
               </span>
@@ -590,7 +468,7 @@ export default function RoadmapPage() {
                 ))
               ) : (
                 <span className="text-xs text-gray-500">
-                  No missing skills reported.
+                  No missing skills identified.
                 </span>
               )}
             </div>
@@ -598,23 +476,20 @@ export default function RoadmapPage() {
         </div>
       </section>
 
-      {/* ------------------------------------------------ */}
-      {/* ROADMAP */}
-      {/* ------------------------------------------------ */}
-
+      {/* EXECUTION PLAN */}
       <section>
         <div className="mb-5 flex items-end justify-between">
           <div>
             <div className="flex items-center gap-2">
               <Flag className="h-5 w-5 text-cyan-400" />
-
               <h2 className="text-xl font-bold text-white">
                 Execution Plan
               </h2>
             </div>
 
             <p className="mt-1 text-xs text-gray-500">
-              Complete the work. Build the evidence. Close the gaps.
+              Close the gaps. Build the evidence. Make the GitHub profile
+              stronger.
             </p>
           </div>
 
@@ -628,20 +503,17 @@ export default function RoadmapPage() {
           {weeks.length === 0 ? (
             <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-8 text-center">
               <Code2 className="mx-auto h-8 w-8 text-gray-600" />
-
               <p className="mt-3 text-sm font-semibold text-gray-300">
                 No roadmap tasks were returned.
               </p>
-
               <p className="mt-1 text-xs text-gray-500">
-                Check the backend roadmap response.
+                Analyze a job from Career & Jobs and build its roadmap again.
               </p>
             </div>
           ) : (
             weeks.map((week, index) => {
               const weekNumber = week.week || index + 1;
               const isOpen = expandedWeek === weekNumber;
-
               const weekTasks = week.tasks || [];
 
               const weekCompleted = weekTasks.filter(
@@ -707,8 +579,7 @@ export default function RoadmapPage() {
                       <div className="space-y-3">
                         {weekTasks.map((task, taskIndex) => {
                           const taskKey = `${weekNumber}-${taskIndex}`;
-                          const completed =
-                            completedTasks[taskKey] || false;
+                          const completed = completedTasks[taskKey] || false;
 
                           const taskSkills =
                             task.skills ||
@@ -727,16 +598,18 @@ export default function RoadmapPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    toggleTask(
-                                      weekNumber,
-                                      taskIndex
-                                    )
+                                    toggleTask(weekNumber, taskIndex)
                                   }
                                   className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-all ${
                                     completed
                                       ? "border-emerald-400 bg-emerald-400 text-black"
                                       : "border-gray-600 hover:border-cyan-400"
                                   }`}
+                                  aria-label={
+                                    completed
+                                      ? "Mark task incomplete"
+                                      : "Mark task complete"
+                                  }
                                 >
                                   {completed && (
                                     <CheckCircle2 className="h-4 w-4" />
@@ -761,14 +634,12 @@ export default function RoadmapPage() {
                                       </p>
                                     </div>
 
-                                    <div className="flex shrink-0 items-center gap-2">
-                                      {task.estimated_hours && (
-                                        <span className="inline-flex items-center gap-1 rounded-lg border border-gray-800 bg-gray-950 px-2 py-1 text-[10px] text-gray-400">
-                                          <Clock3 className="h-3 w-3" />
-                                          {task.estimated_hours}h
-                                        </span>
-                                      )}
-                                    </div>
+                                    {task.estimated_hours && (
+                                      <span className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-800 bg-gray-950 px-2 py-1 text-[10px] text-gray-400">
+                                        <Clock3 className="h-3 w-3" />
+                                        {task.estimated_hours}h
+                                      </span>
+                                    )}
                                   </div>
 
                                   {taskSkills.length > 0 && (
@@ -800,16 +671,12 @@ export default function RoadmapPage() {
         </div>
       </section>
 
-      {/* ------------------------------------------------ */}
       {/* FINAL CALLOUT */}
-      {/* ------------------------------------------------ */}
-
       <section className="relative overflow-hidden rounded-2xl border border-cyan-500/20 bg-gradient-to-r from-cyan-950/20 via-gray-900 to-purple-950/20 p-6 md:p-8">
         <div className="relative flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div>
             <div className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-cyan-400" />
-
               <h2 className="font-bold text-white">
                 Turn roadmap items into GitHub evidence.
               </h2>

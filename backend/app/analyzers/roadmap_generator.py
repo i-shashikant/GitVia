@@ -96,28 +96,111 @@ class RoadmapGenerator:
         target_role: str = "Backend Engineer",
     ) -> dict[str, Any]:
 
-        strongest = dev_profile.get("strongest_skills", [])
-        weakest = dev_profile.get("weakest_skills", [])
-        skill_scores = dev_profile.get("skill_scores", {})
+        strongest = list(dev_profile.get("strongest_skills") or [])
+        weakest = list(dev_profile.get("weakest_skills") or [])
+        skill_scores = dict(dev_profile.get("skill_scores") or {})
 
-        role_key = self._resolve_role(target_role)
-        role_skills = self.ROLE_SKILLS.get(
-            role_key,
-            self.ROLE_SKILLS["Backend Engineer"],
+        # When Career sends us a stored job analysis, the JD becomes the
+        # source of truth for the roadmap.  The normal role templates remain
+        # available as a fallback for a standalone/general roadmap.
+        job_required = self._deduplicate(
+            dev_profile.get("job_required_skills") or []
+        )
+        job_preferred = self._deduplicate(
+            dev_profile.get("job_preferred_skills") or []
+        )
+        job_missing = self._deduplicate(
+            dev_profile.get("job_missing_skills") or []
         )
 
-        gaps = self._identify_gaps(
-            role_skills,
-            strongest,
-            weakest,
-            skill_scores,
-        )
+        job_specific = bool(job_required)
 
-        roadmap_topics = self._prioritize_topics(
-            gaps,
-            role_skills,
-            weakest,
-        )
+        if job_specific:
+            role_skills = self._deduplicate(
+                job_required + job_preferred
+            )
+
+            # Only expose strengths/improvement areas that are relevant to
+            # this job.  This prevents unrelated GitHub skills from making
+            # every job-specific roadmap look the same.
+            required_lookup = {
+                str(skill).lower() for skill in role_skills
+            }
+
+            job_strongest = [
+                skill
+                for skill in strongest
+                if str(skill).lower() in required_lookup
+            ]
+
+            job_weakest = [
+                skill
+                for skill in weakest
+                if str(skill).lower() in required_lookup
+            ]
+
+            # The persisted JobMatch/SkillGap is authoritative for explicit
+            # missing skills, even when the base profile has no score entry.
+            job_gaps = [
+                skill
+                for skill in job_missing
+                if str(skill).lower() in required_lookup
+            ]
+
+            gaps = self._deduplicate(job_gaps)
+
+            strongest_output = self._deduplicate(job_strongest)
+            improving_output = self._deduplicate(job_weakest)
+
+            # Classify the remaining job requirements using the same evidence
+            # thresholds as the matcher, without turning moderate evidence
+            # into a "missing" skill.
+            for skill in role_skills:
+                if skill in gaps or skill in strongest_output:
+                    continue
+
+                score = skill_scores.get(skill)
+
+                if not isinstance(score, (int, float)):
+                    gaps.append(skill)
+                elif score < 45:
+                    gaps.append(skill)
+                elif score < 75 and skill not in improving_output:
+                    improving_output.append(skill)
+
+            gaps = self._deduplicate(gaps)
+            improving_output = self._deduplicate(improving_output)
+
+            # Preferred skills are useful secondary roadmap topics, but
+            # required gaps always come first.
+            roadmap_topics = self._prioritize_job_topics(
+                gaps,
+                improving_output,
+                job_required,
+                job_preferred,
+            )
+        else:
+            role_key = self._resolve_role(target_role)
+            role_skills = self.ROLE_SKILLS.get(
+                role_key,
+                self.ROLE_SKILLS["Backend Engineer"],
+            )
+
+            gaps = self._identify_gaps(
+                role_skills,
+                strongest,
+                weakest,
+                skill_scores,
+            )
+
+            roadmap_topics = self._prioritize_topics(
+                gaps,
+                role_skills,
+                weakest,
+            )
+
+            strongest_output = strongest
+            improving_output = weakest[:3]
 
         repo_name = (
             user_repos[0].get("name", "your existing project")
@@ -141,12 +224,18 @@ class RoadmapGenerator:
             "target_role": target_role,
             "duration_weeks": len(weekly_plan),
             "headline": (
-                f"Personalized {len(weekly_plan)}-Week Action Plan "
+                f"Job-specific {len(weekly_plan)}-Week Action Plan "
                 f"for {target_role}"
+                if job_specific
+                else (
+                    f"Personalized {len(weekly_plan)}-Week Action Plan "
+                    f"for {target_role}"
+                )
             ),
-            "strong_skills": strongest,
-            "improving_skills": weakest[:3],
-            "missing_skills": gaps[:5],
+            "job_specific": job_specific,
+            "strong_skills": strongest_output,
+            "improving_skills": improving_output,
+            "missing_skills": gaps,
             "weekly_plan": weekly_plan,
         }
 
@@ -221,6 +310,40 @@ class RoadmapGenerator:
     # ---------------------------------------------------------
     # PRIORITIZATION
     # ---------------------------------------------------------
+
+    def _prioritize_job_topics(
+        self,
+        gaps: list[str],
+        improving: list[str],
+        required_skills: list[str],
+        preferred_skills: list[str],
+    ) -> list[str]:
+        """Prioritize topics from the actual job before generic fallback topics."""
+
+        topics = []
+
+        # 1. Explicit missing requirements are the highest priority.
+        for skill in gaps:
+            if skill not in topics:
+                topics.append(skill)
+
+        # 2. Then address weak/improving requirements from the same JD.
+        for skill in improving:
+            if skill not in topics:
+                topics.append(skill)
+
+        # 3. If the candidate is already strong, use remaining required
+        # requirements to create evidence rather than inventing a new stack.
+        for skill in required_skills:
+            if skill not in topics:
+                topics.append(skill)
+
+        # 4. Preferred skills only fill remaining slots.
+        for skill in preferred_skills:
+            if skill not in topics:
+                topics.append(skill)
+
+        return self._deduplicate(topics)[:6]
 
     def _prioritize_topics(
         self,
@@ -500,9 +623,89 @@ class RoadmapGenerator:
             },
         }
 
-        plan = plans.get(
-            topic,
-            {
+        language_topics = {
+            "C": ("C Programming Foundations", "systems programming fundamentals"),
+            "C++": ("C++ Engineering", "modern C++ and problem-solving"),
+            "C#": ("C# Application Development", "modern C# application development"),
+            ".NET": (".NET Backend Development", "ASP.NET Core and the .NET ecosystem"),
+            "Java": ("Java Backend Development", "modern Java and production backend patterns"),
+            "JavaScript": ("Modern JavaScript", "production JavaScript"),
+            "TypeScript": ("TypeScript", "strong typing and maintainable application contracts"),
+            "Go": ("Go Backend Development", "idiomatic Go services"),
+            "Rust": ("Rust Engineering", "safe systems-oriented Rust development"),
+            "PHP": ("PHP Application Development", "modern PHP application development"),
+            "Ruby": ("Ruby Application Development", "maintainable Ruby application development"),
+            "Kotlin": ("Kotlin Development", "modern Kotlin application development"),
+            "Swift": ("Swift Development", "modern Swift application development"),
+            "Dart": ("Dart Development", "Dart application development"),
+            "Scala": ("Scala Development", "Scala application development"),
+            "R": ("R & Data Analysis", "R-based data analysis"),
+            "SQL": ("Advanced SQL", "production SQL and query design"),
+            "PL/SQL": ("PL/SQL", "database-side programming"),
+            "T-SQL": ("T-SQL", "SQL Server development"),
+            "Bash": ("Shell Automation", "reliable Bash automation"),
+            "PowerShell": ("PowerShell Automation", "Windows and cloud automation"),
+        }
+
+        if topic in language_topics:
+            language_title, language_focus = language_topics[topic]
+            plan = {
+                "focus": "Programming & Engineering",
+                "title": language_title,
+                "deliverable": (
+                    f"Create concrete {topic} evidence aligned with "
+                    f"the {target_role} job."
+                ),
+                "guidance": (
+                    f"Focus on {language_focus}. Build something small but "
+                    "real, test it, and document the implementation."
+                ),
+                "tasks": [
+                    f"Learn the production fundamentals of {topic} required by the job.",
+                    f"Implement a meaningful {topic} feature or small service.",
+                    f"Add tests and document the {topic} implementation in the README.",
+                ],
+            }
+        elif topic == "MySQL":
+            plan = {
+                "focus": "Database Engineering",
+                "title": "MySQL Application Database",
+                "deliverable": f"Add meaningful MySQL evidence to {repo_name}.",
+                "guidance": "Focus on schema design, joins, indexes, transactions, and application integration.",
+                "tasks": [
+                    "Design or adapt a relational schema for the project.",
+                    "Implement application queries with joins, constraints, and indexes.",
+                    "Test the database integration and document the schema.",
+                ],
+            }
+        elif topic == "Node.js":
+            plan = {
+                "focus": "Backend Engineering",
+                "title": "Node.js Backend Evidence",
+                "deliverable": f"Build a small production-style Node.js service or feature.",
+                "guidance": "Focus on API design, async execution, validation, errors, and testing.",
+                "tasks": [
+                    "Create a Node.js API endpoint with validation.",
+                    "Add error handling and automated API tests.",
+                    "Document how the service is run and deployed.",
+                ],
+            }
+        elif topic in {"HTML", "CSS"}:
+            plan = {
+                "focus": "Frontend Engineering",
+                "title": f"{topic} Production UI",
+                "deliverable": f"Create job-aligned {topic} evidence inside {repo_name}.",
+                "guidance": "Improve a real interface rather than creating an isolated tutorial page.",
+                "tasks": [
+                    f"Implement a meaningful UI feature using {topic}.",
+                    "Make the implementation responsive and accessible.",
+                    "Document the feature and verify it in the deployed application.",
+                ],
+            }
+        else:
+            plan = plans.get(
+                topic,
+                {
                 "focus": f"{target_role} Skill Development",
                 "title": f"{topic} Development",
                 "deliverable": (
