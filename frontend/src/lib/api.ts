@@ -95,15 +95,22 @@ export async function fetchJobAnalysisHistory() {
 
 export async function fetchRoadmap(
   targetRole: string = "Backend Engineer",
-  refresh = false
+  refresh = false,
+  jobId?: number
 ) {
-  const params = new URLSearchParams({ target_role: targetRole });
-  if (refresh) params.set("refresh", "true");
-  return apiFetch(`/roadmap?${params.toString()}`);
-}
+  const params = new URLSearchParams();
 
-export async function fetchChatHistory() {
-  return apiFetch("/chat");
+  if (jobId !== undefined) {
+    params.set("job_id", String(jobId));
+  } else {
+    params.set("target_role", targetRole);
+  }
+
+  if (refresh) {
+    params.set("refresh", "true");
+  }
+
+  return apiFetch(`/roadmap?${params.toString()}`);
 }
 
 export async function sendChatMessage(message: string) {
@@ -113,4 +120,8 @@ export async function sendChatMessage(message: string) {
       message,
     }),
   });
+}
+
+export async function fetchChatHistory() {
+  return apiFetch("/chat/history");
 }

@@ -12,6 +12,7 @@ import {
   Sparkles, 
   Search,
   ArrowRight,
+  Map,
   ShieldAlert
 } from "lucide-react";
 
@@ -476,6 +477,26 @@ Requirements:
                           <div className="mt-3 text-[10px] text-cyan-400 font-medium">
                             Click to restore analysis →
                           </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!selectedHistoryId) return;
+
+                              const selectedJob = jobHistory.find(
+                                (job) => job.match_id === selectedHistoryId
+                              );
+
+                              if (!selectedJob?.job_id) return;
+
+                              window.location.href = `/roadmap?job_id=${selectedJob.job_id}`;
+                            }}
+                            disabled={!selectedHistoryId}
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 px-4 py-2.5 text-xs font-bold text-black transition hover:from-cyan-400 hover:to-blue-400 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <Map className="h-4 w-4" />
+                            Build Roadmap for This Job
+                          </button>
 
                           <div className="mt-4 pt-3 border-t border-gray-800 text-[10px] text-gray-600">
                             {job.calculated_at

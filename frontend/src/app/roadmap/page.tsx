@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowRight,
@@ -51,12 +52,20 @@ type RoadmapWeek = {
 type RoadmapData = {
   target_role?: string;
   duration_weeks?: number;
+
+  job_id?: number;
+  job_title?: string;
+  company?: string;
+  job_match_score?: number;
+
   weekly_plan?: RoadmapWeek[];
   weekly_tasks?: RoadmapWeek[];
   weeks?: RoadmapWeek[];
+
   strong_skills?: string[];
   improving_skills?: string[];
   missing_skills?: string[];
+
   skill_gaps?: {
     strong?: string[];
     improving?: string[];
@@ -101,6 +110,11 @@ function normalizeWeek(week: RoadmapWeek, index: number): RoadmapWeek {
 }
 
 export default function RoadmapPage() {
+  const searchParams = useSearchParams();
+
+  const jobIdParam = searchParams.get("job_id");
+  const jobId = jobIdParam ? Number(jobIdParam) : undefined;
+
   const [roadmap, setRoadmap] = useState<RoadmapData | null>(null);
   const [targetRole, setTargetRole] = useState("Backend Engineer");
   const [loading, setLoading] = useState(true);
@@ -111,12 +125,27 @@ export default function RoadmapPage() {
     {}
   );
 
-  async function loadRoadmap(role = targetRole, refresh = false) {
+  const isJobRoadmap =
+    typeof jobId === "number" && Number.isFinite(jobId);
+
+  async function loadRoadmap(
+    role = targetRole,
+    refresh = false
+  ) {
     try {
       setError("");
 
-      const data = await fetchRoadmap(role, refresh);
+      const data = await fetchRoadmap(
+        role,
+        refresh,
+        isJobRoadmap ? jobId : undefined
+      );
+
       setRoadmap(data);
+
+      if (data?.target_role) {
+        setTargetRole(data.target_role);
+      }
 
       const weeks =
         data?.weekly_plan ||
@@ -129,17 +158,21 @@ export default function RoadmapPage() {
       }
     } catch (err) {
       console.error(err);
-      setError("Unable to load your roadmap. Make sure the backend is running.");
+
+      setError(
+        "Unable to load your roadmap. Make sure the backend is running."
+      );
     }
   }
 
   useEffect(() => {
     setLoading(true);
+    setCompletedTasks({});
 
     loadRoadmap()
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }, [jobIdParam]);
 
   const weeks = useMemo(() => {
     if (!roadmap) return [];
@@ -286,14 +319,57 @@ export default function RoadmapPage() {
                 evidence, current strengths, improvement areas, and target
                 role.
               </p>
+              {isJobRoadmap && roadmap?.job_title && (
+                <div className="mt-4 inline-flex flex-wrap items-center gap-2 rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs">
+                  <span className="font-semibold text-cyan-300">
+                    Job-specific roadmap
+                  </span>
+
+                  <span className="text-gray-600">•</span>
+
+                  <span className="text-gray-300">
+                    {roadmap.job_title}
+                  </span>
+
+                  {roadmap.company && (
+                    <>
+                      <span className="text-gray-600">@</span>
+
+                      <span className="text-gray-400">
+                        {roadmap.company}
+                      </span>
+                    </>
+                  )}
+
+                  {typeof roadmap.job_match_score === "number" && (
+                    <>
+                      <span className="text-gray-600">•</span>
+
+                      <span className="font-semibold text-purple-300">
+                        {roadmap.job_match_score.toFixed(1)}% match
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <select
                 value={targetRole}
                 onChange={handleRoleChange}
-                className="rounded-xl border border-gray-700 bg-gray-950 px-4 py-3 text-sm font-medium text-gray-200 outline-none transition focus:border-cyan-500"
+                disabled={isJobRoadmap}
+                className={`rounded-xl border border-gray-700 bg-gray-950 px-4 py-3 text-sm font-medium text-gray-200 outline-none transition focus:border-cyan-500 ${
+                  isJobRoadmap
+                    ? "cursor-not-allowed opacity-60"
+                    : ""
+                }`}
               >
+                {isJobRoadmap && (
+                  <p className="text-[10px] text-gray-500 sm:max-w-[180px]">
+                    This roadmap is tied to the analyzed job.
+                  </p>
+                )}
                 <option value="Backend Engineer">
                   Backend Engineer
                 </option>
